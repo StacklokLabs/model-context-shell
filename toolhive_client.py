@@ -1,7 +1,9 @@
 import subprocess
 import atexit
 import time
+import asyncio
 import httpx
+import mcp_client
 
 # Global variable to hold the thv serve process
 thv_process = None
@@ -77,6 +79,26 @@ def initialize():
         print(f"Data: {workloads.get('data')}")
     else:
         print(f"Error: {workloads.get('error')}")
+    print("=" * 25 + "\n")
+
+    # List all tools from MCP servers
+    print("=== Available Tools ===")
+    try:
+        tools_list = asyncio.run(mcp_client.list_tools())
+        for server_tools in tools_list:
+            workload_name = server_tools.get("workload", "unknown")
+            status = server_tools.get("status", "unknown")
+            tools = server_tools.get("tools", [])
+            error = server_tools.get("error")
+
+            print(f"\nWorkload: {workload_name}")
+            print(f"  Status: {status}")
+            if tools:
+                print(f"  Tools: {', '.join(tools)}")
+            if error:
+                print(f"  Error: {error}")
+    except Exception as e:
+        print(f"Error listing tools: {str(e)}")
     print("=" * 25 + "\n")
 
     return workloads

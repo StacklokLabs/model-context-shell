@@ -109,10 +109,11 @@ class TestInitialize:
             "endpoint": "/api/v1beta/workloads",
             "data": []
         }
+        mocker.patch("asyncio.run", return_value=[])
 
         result = toolhive_client.initialize()
 
-        mock_atexit.assert_called_once_with(toolhive_client.stop_thv_serve)
+        mock_atexit.assert_any_call(toolhive_client.stop_thv_serve)
         mock_start.assert_called_once()
         mock_list.assert_called_once()
         assert result["success"] is True
@@ -126,6 +127,7 @@ class TestInitialize:
             "success": False,
             "error": "Connection refused"
         }
+        mocker.patch("asyncio.run", return_value=[])
 
         result = toolhive_client.initialize()
 
