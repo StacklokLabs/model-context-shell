@@ -1,0 +1,104 @@
+import subprocess
+import atexit
+import time
+import asyncio
+import httpx
+import mcp_client
+
+# Global variable to hold the thv serve process
+thv_process = None
+
+# Default API configuration
+DEFAULT_HOST = "127.0.0.1"
+DEFAULT_PORT = 8080
+
+
+def start_thv_serve():
+    """Start the thv serve process"""
+    global thv_process
+    print("Starting thv serve...")
+    thv_process = subprocess.Popen(
+        ["thv", "serve"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    print(f"thv serve started with PID: {thv_process.pid}")
+
+    # Give it a moment to start up
+    time.sleep(1)
+
+
+def stop_thv_serve():
+    """Stop the thv serve process"""
+    global thv_process
+    if thv_process:
+        print("Stopping thv serve...")
+        thv_process.terminate()
+        try:
+            thv_process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            thv_process.kill()
+        print("thv serve stopped")
+
+
+def list_workloads(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> dict:
+    """List all running workloads from the ToolHive API"""
+    base_url = f"http://{host}:{port}"
+    endpoint = "/api/v1beta/workloads"
+
+    try:
+        with httpx.Client(timeout=5.0) as client:
+            response = client.get(f"{base_url}{endpoint}")
+            response.raise_for_status()
+            return {
+                "success": True,
+                "endpoint": endpoint,
+                "data": response.json()
+            }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+
+def initialize():
+    """Initialize the ToolHive client - starts thv serve and returns workload info"""
+    # Register cleanup handler
+    atexit.register(stop_thv_serve)
+
+    # Start thv serve
+    start_thv_serve()
+
+    # List current workloads
+    workloads = list_workloads()
+
+    print("\n=== Current Workloads ===")
+    if workloads.get("success"):
+        print(f"Endpoint: {workloads.get('endpoint')}")
+        print(f"Data: {workloads.get('data')}")
+    else:
+        print(f"Error: {workloads.get('error')}")
+    print("=" * 25 + "\n")
+
+    # List all tools from MCP servers
+    print("=== Available Tools ===")
+    try:
+        tools_list = asyncio.run(mcp_client.list_tools())
+        for server_tools in tools_list:
+            workload_name = server_tools.get("workload", "unknown")
+            status = server_tools.get("status", "unknown")
+            tools = server_tools.get("tools", [])
+            error = server_tools.get("error")
+
+            print(f"\nWorkload: {workload_name}")
+            print(f"  Status: {status}")
+            if tools:
+                print(f"  Tools: {', '.join(tools)}")
+            if error:
+                print(f"  Error: {error}")
+    except Exception as e:
+        print(f"Error listing tools: {str(e)}")
+    print("=" * 25 + "\n")
+
+    return workloads
