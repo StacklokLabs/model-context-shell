@@ -7,3 +7,9 @@ requires-python = ">=3.13"
 dependencies = [
     "fastmcp>=2.12.4",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.2",
+    "pytest-mock>=3.15.1",
+]

@@ -1,4 +1,5 @@
 from fastmcp import FastMCP
+import toolhive_client
 
 mcp = FastMCP("hello-world")
 
@@ -10,4 +11,8 @@ def greet(name: str) -> str:
 
 
 if __name__ == "__main__":
+    # Initialize ToolHive client - starts thv serve and lists workloads
+    toolhive_client.initialize()
+
+    # Run the MCP server
     mcp.run()
