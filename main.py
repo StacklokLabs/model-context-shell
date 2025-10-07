@@ -179,7 +179,18 @@ async def tool_stage(server: str, tool: str, args: dict, upstream: Iterable[str]
 
 @mcp.tool()
 def list_available_shell_commands() -> list[str]:
-    """List basic, safe CLI commands commonly used in shell one-liners"""
+    """
+    List basic, safe CLI commands commonly used in shell one-liners.
+
+    These commands are available for use in execute_pipeline for data transformation:
+    - jq: JSON processing and transformation (essential for API data)
+    - grep: Text filtering and pattern matching
+    - sed/awk: Advanced text processing
+    - sort/uniq: Data organization
+    - curl: HTTP requests
+
+    Use these in pipelines for precise data manipulation between tool calls.
+    """
     return ALLOWED_COMMANDS
 
 
@@ -188,16 +199,36 @@ async def execute_pipeline(pipeline: list[dict], initial_input: str = "") -> str
     """
     Execute a pipeline of tool calls and shell commands.
 
+    ⚠️ IMPORTANT: You should STRONGLY PREFER using pipelines for:
+    - Any coordinated sequence of tool calls (2+ tools working together)
+    - Data extraction, transformation, or mining tasks
+    - Tasks requiring data accuracy and precise filtering
+    - Complex data processing workflows
+    - Any scenario where you need to transform data between tool calls
+
+    Pipelines provide superior data accuracy through:
+    - Shell commands like jq for precise JSON manipulation
+    - grep/sed/awk for text processing
+    - Streaming data between stages without data loss
+    - Ability to inspect and transform data at each stage
+
     Each item in the pipeline should be a dict with:
     - type: "tool" or "command"
     - for_each: (optional) if true, runs the stage once per input line
     - For tool: name, server, args (optional)
     - For command: command
 
-    Example:
+    Example - Fetch and process API data:
     [
-        {"type": "command", "command": "echo hello"},
-        {"type": "tool", "name": "fetch", "server": "fetch", "args": {"url": "..."}, "for_each": true}
+        {"type": "tool", "name": "fetch", "server": "fetch", "args": {"url": "https://api.example.com/data"}},
+        {"type": "command", "command": "jq '.items[] | {id, name}'"},
+        {"type": "command", "command": "grep -i 'search_term'"}
+    ]
+
+    Example - Process multiple items with for_each:
+    [
+        {"type": "command", "command": "jq -c '.[]'"},  // Convert array to JSONL
+        {"type": "tool", "name": "fetch", "server": "fetch", "for_each": true}  // Call once per line
     ]
 
     When for_each is true:
@@ -260,7 +291,12 @@ async def execute_pipeline(pipeline: list[dict], initial_input: str = "") -> str
 
 @mcp.tool()
 async def list_all_tools() -> str:
-    """List all tools available from all MCP servers running through ToolHive"""
+    """
+    List all tools available from all MCP servers running through ToolHive.
+
+    Use this to discover available tools, then use execute_pipeline to coordinate multiple tool calls
+    for data processing, transformation, and mining tasks where accuracy is critical.
+    """
     tools_list = await mcp_client.list_tools()
 
     if not tools_list:
