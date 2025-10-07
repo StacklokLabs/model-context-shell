@@ -3,6 +3,7 @@ from typing import List, Dict, Any
 import httpx
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.sse import sse_client
 
 
 DEFAULT_HOST = "127.0.0.1"
@@ -29,6 +30,7 @@ async def list_tools_from_server(workload: Dict[str, Any]) -> Dict[str, Any]:
     try:
         # Extract workload information
         transport_type = workload.get("transport_type", "")
+        proxy_mode = workload.get("proxy_mode", "")
         url = workload.get("url", "")
         status = workload.get("status", "")
 
@@ -41,15 +43,6 @@ async def list_tools_from_server(workload: Dict[str, Any]) -> Dict[str, Any]:
                 "error": f"Workload status is '{status}', not running"
             }
 
-        # Only support streamable-http for now
-        if transport_type != "streamable-http":
-            return {
-                "workload": name,
-                "status": "unsupported",
-                "tools": [],
-                "error": f"Transport type '{transport_type}' not yet supported"
-            }
-
         if not url:
             return {
                 "workload": name,
@@ -58,24 +51,41 @@ async def list_tools_from_server(workload: Dict[str, Any]) -> Dict[str, Any]:
                 "error": "No URL provided for workload"
             }
 
-        # Connect to the MCP server using streamable HTTP
-        async with streamablehttp_client(url) as (read, write, get_session_id):
-            async with ClientSession(read, write) as session:
-                # Initialize the session
-                await session.initialize()
-
-                # List tools
-                tools_response = await session.list_tools()
-
-                # Extract tool names
-                tool_names = [tool.name for tool in tools_response.tools]
-
-                return {
-                    "workload": name,
-                    "status": "success",
-                    "tools": tool_names,
-                    "error": None
-                }
+        # Determine which client to use based on proxy_mode or transport_type
+        # ToolHive can proxy servers via SSE even if the original transport is stdio
+        if proxy_mode == "sse":
+            # Use SSE client for SSE proxy
+            async with sse_client(url) as (read, write):
+                async with ClientSession(read, write) as session:
+                    await session.initialize()
+                    tools_response = await session.list_tools()
+                    tool_names = [tool.name for tool in tools_response.tools]
+                    return {
+                        "workload": name,
+                        "status": "success",
+                        "tools": tool_names,
+                        "error": None
+                    }
+        elif proxy_mode == "streamable-http" or transport_type == "streamable-http":
+            # Use streamable HTTP client
+            async with streamablehttp_client(url) as (read, write, get_session_id):
+                async with ClientSession(read, write) as session:
+                    await session.initialize()
+                    tools_response = await session.list_tools()
+                    tool_names = [tool.name for tool in tools_response.tools]
+                    return {
+                        "workload": name,
+                        "status": "success",
+                        "tools": tool_names,
+                        "error": None
+                    }
+        else:
+            return {
+                "workload": name,
+                "status": "unsupported",
+                "tools": [],
+                "error": f"Transport/proxy mode '{proxy_mode or transport_type}' not yet supported"
+            }
 
     except Exception as e:
         import traceback
