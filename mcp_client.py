@@ -16,7 +16,9 @@ async def get_workloads(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> L
     endpoint = "/api/v1beta/workloads"
 
     async with httpx.AsyncClient(timeout=5.0) as client:
-        response = await client.get(f"{base_url}{endpoint}")
+        # Force fresh data with cache-busting headers
+        headers = {"Cache-Control": "no-cache, no-store, must-revalidate"}
+        response = await client.get(f"{base_url}{endpoint}", headers=headers)
         response.raise_for_status()
         data = response.json()
         # API returns {"workloads": [...]} so extract the list

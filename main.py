@@ -7,12 +7,6 @@ mcp = FastMCP("mcp-shell")
 
 
 @mcp.tool()
-def greet(name: str) -> str:
-    """Greet a person by name"""
-    return f"Hello, {name}!"
-
-
-@mcp.tool()
 async def list_all_tools() -> str:
     """List all tools available from all MCP servers running through ToolHive"""
     tools_list = await mcp_client.list_tools()
@@ -47,7 +41,7 @@ if __name__ == "__main__":
 
     # Run the MCP server with HTTP transport
     # Check if --transport argument is provided
-    transport = "sse"  # Default to SSE for HTTP access
+    transport = "streamable-http"  # Default to streamable-http for HTTP access
     port = 8000
 
     for i, arg in enumerate(sys.argv):
@@ -59,7 +53,8 @@ if __name__ == "__main__":
     if transport == "stdio":
         mcp.run(transport="stdio")
     else:
-        print(f"\n🚀 Starting MCP server on http://localhost:{port}/sse")
+        endpoint = "/sse" if transport == "sse" else "/mcp"
+        print(f"\n🚀 Starting MCP server on http://localhost:{port}{endpoint}")
         print(f"   Transport: {transport}")
-        print(f"   Connect via: http://localhost:{port}/sse\n")
+        print(f"   Connect via: http://localhost:{port}{endpoint}\n")
         mcp.run(transport=transport, port=port)
