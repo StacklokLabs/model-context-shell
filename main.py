@@ -114,7 +114,7 @@ async def tool_stage(server: str, tool: str, args: dict, upstream: Iterable[str]
         results = []
         input_data = "".join(upstream)
 
-        for line in input_data.strip().split('\n'):
+        for line_num, line in enumerate(input_data.strip().split('\n'), 1):
             if not line.strip():
                 continue
 
@@ -126,12 +126,25 @@ async def tool_stage(server: str, tool: str, args: dict, upstream: Iterable[str]
                     call_args = {**parsed_line, **args}
                 else:
                     call_args = {**args, "input": parsed_line}
-            except json.JSONDecodeError:
-                # If parsing fails, use as string input
-                call_args = {**args, "input": line}
+            except json.JSONDecodeError as e:
+                # If parsing fails, provide helpful error message
+                raise ValueError(
+                    f"Line {line_num}: Invalid JSON in for_each mode. "
+                    f"Tools with for_each require JSONL input (one JSON object per line). "
+                    f"Got: {line[:100]}... "
+                    f"Use jq to structure your data, e.g.: jq -c '.[] | {{param_name: .}}'"
+                ) from e
 
             # Call the tool
-            result = await mcp_client.call_tool(server, tool, call_args)
+            try:
+                result = await mcp_client.call_tool(server, tool, call_args)
+            except Exception as e:
+                # Add context about which line failed
+                raise RuntimeError(
+                    f"Line {line_num}: Tool call failed for {server}/{tool}. "
+                    f"Args used: {json.dumps(call_args, indent=2)}. "
+                    f"Error: {str(e)}"
+                ) from e
 
             # Extract content from result
             if hasattr(result, 'content'):
@@ -225,15 +238,23 @@ async def execute_pipeline(pipeline: list[dict], initial_input: str = "") -> str
         {"type": "command", "command": "grep -i 'search_term'"}
     ]
 
-    Example - Process multiple items with for_each:
+    Example - Fetch multiple URLs with for_each:
     [
-        {"type": "command", "command": "jq -c '.[]'"},  // Convert array to JSONL
-        {"type": "tool", "name": "fetch", "server": "fetch", "for_each": true}  // Call once per line
+        {"type": "tool", "name": "fetch", "server": "fetch", "args": {"url": "https://swapi.dev/api/people/1/"}},
+        {"type": "command", "command": "jq -c '.films[] | {url: .}'"},  // Convert URLs to JSONL with 'url' field
+        {"type": "tool", "name": "fetch", "server": "fetch", "for_each": true},  // Fetch each URL
+        {"type": "command", "command": "jq -s 'sort_by(.release_date)'"}  // Collect and sort results
     ]
 
+    ⚠️ CRITICAL for for_each with tools:
+    - Tools with for_each REQUIRE properly structured JSONL input
+    - Each line must be a JSON object with the correct parameter names for that tool
+    - Example: fetch tool needs {"url": "..."} not just "https://..."
+    - Use jq to transform plain values into objects: 'jq -c ".[] | {url: .}"'
+
     When for_each is true:
-    - Commands run once per input line
-    - Tools expect JSONL input and parse each line as JSON
+    - Commands run once per input line (can be plain text)
+    - Tools run once per line with JSONL input (MUST be properly structured JSON objects)
     """
     try:
         # Start with initial input as a generator
