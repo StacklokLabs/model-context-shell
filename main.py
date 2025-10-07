@@ -1,9 +1,70 @@
 from fastmcp import FastMCP
 import toolhive_client
 import mcp_client
+import subprocess
+import threading
+from typing import Iterable, Generator
+import asyncio
+import json
 
 
 mcp = FastMCP("mcp-shell")
+
+
+def shell_stage(cmd: str, upstream: Iterable[str]) -> Generator[str, None, None]:
+    """Run a shell command as a streaming stage, consuming upstream lazily."""
+    proc = subprocess.Popen(
+        cmd,
+        shell=True,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        bufsize=1
+    )
+    assert proc.stdin and proc.stdout
+
+    # Write upstream into the process stdin in the background
+    def _writer():
+        try:
+            for item in upstream:
+                proc.stdin.write(item)
+            proc.stdin.close()
+        except BrokenPipeError:
+            pass
+
+    threading.Thread(target=_writer, daemon=True).start()
+
+    # Yield stdout as it arrives
+    for line in proc.stdout:
+        yield line
+
+    rc = proc.wait()
+    if rc != 0:
+        stderr_output = proc.stderr.read() if proc.stderr else ""
+        raise subprocess.CalledProcessError(rc, cmd, stderr=stderr_output)
+
+
+async def tool_stage(server: str, tool: str, args: dict, upstream: Iterable[str]) -> str:
+    """Call an MCP tool with upstream data as input."""
+    # Collect all upstream data
+    input_data = "".join(upstream)
+
+    # Add input_data to args if not already present
+    if "input" not in args and input_data:
+        args = {**args, "input": input_data}
+
+    # Call the tool
+    result = await mcp_client.call_tool(server, tool, args)
+
+    # Extract content from result
+    if hasattr(result, 'content'):
+        for content_item in result.content:
+            if hasattr(content_item, 'text'):
+                return content_item.text
+
+    # Fallback to string representation
+    return str(result)
 
 
 @mcp.tool()
@@ -30,7 +91,7 @@ def list_available_shell_commands() -> list[str]:
 
 
 @mcp.tool()
-def execute_pipeline(pipeline: list[dict]) -> str:
+async def execute_pipeline(pipeline: list[dict], initial_input: str = "") -> str:
     """
     Execute a pipeline of tool calls and shell commands.
 
@@ -45,20 +106,44 @@ def execute_pipeline(pipeline: list[dict]) -> str:
         {"type": "tool", "name": "greet", "server": "mcp-example", "args": {"name": "world"}}
     ]
     """
-    items = []
-    for i, item in enumerate(pipeline):
-        item_type = item.get("type")
-        if item_type == "tool":
-            name = item.get("name", "unknown")
-            server = item.get("server", "unknown")
-            items.append(f'tool "{name}" from server "{server}"')
-        elif item_type == "command":
-            command = item.get("command", "unknown")
-            items.append(f'command "{command}"')
-        else:
-            items.append(f'unknown item type "{item_type}"')
+    try:
+        # Start with initial input as a generator
+        upstream: Iterable[str] = iter([initial_input]) if initial_input else iter([])
 
-    return f"Pipeline started with the following items: {', '.join(items)}"
+        # Process each stage in the pipeline
+        for item in pipeline:
+            item_type = item.get("type")
+
+            if item_type == "command":
+                command = item.get("command", "")
+                if not command:
+                    raise ValueError("Command stage missing 'command' field")
+                upstream = shell_stage(command, upstream)
+
+            elif item_type == "tool":
+                tool_name = item.get("name", "")
+                server_name = item.get("server", "")
+                args = item.get("args", {})
+
+                if not tool_name:
+                    raise ValueError("Tool stage missing 'name' field")
+                if not server_name:
+                    raise ValueError("Tool stage missing 'server' field")
+
+                # Tool stages consume all upstream and return a result
+                result = await tool_stage(server_name, tool_name, args, upstream)
+                # Convert result back to a stream for next stage
+                upstream = iter([result])
+
+            else:
+                raise ValueError(f"Unknown pipeline item type: {item_type}")
+
+        # Collect final output
+        output = "".join(upstream)
+        return output
+
+    except Exception as e:
+        return f"Pipeline execution failed: {str(e)}"
 
 
 @mcp.tool()

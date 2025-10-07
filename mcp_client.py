@@ -100,6 +100,53 @@ async def list_tools_from_server(workload: Dict[str, Any]) -> Dict[str, Any]:
         }
 
 
+async def call_tool(
+    workload_name: str,
+    tool_name: str,
+    arguments: Dict[str, Any],
+    host: str = DEFAULT_HOST,
+    port: int = DEFAULT_PORT
+) -> Any:
+    """
+    Call a tool from a specific MCP server workload.
+
+    Returns the tool result or raises an exception on error.
+    """
+    # Get the workload details
+    workloads = await get_workloads(host, port)
+    workload = next((w for w in workloads if w.get("name") == workload_name), None)
+
+    if not workload:
+        raise ValueError(f"Workload '{workload_name}' not found")
+
+    url = workload.get("url", "")
+    status = workload.get("status", "")
+    proxy_mode = workload.get("proxy_mode", "")
+    transport_type = workload.get("transport_type", "")
+
+    if status != "running":
+        raise RuntimeError(f"Workload '{workload_name}' is not running (status: {status})")
+
+    if not url:
+        raise ValueError(f"No URL provided for workload '{workload_name}'")
+
+    # Connect and call the tool
+    if proxy_mode == "sse":
+        async with sse_client(url) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                result = await session.call_tool(tool_name, arguments=arguments)
+                return result
+    elif proxy_mode == "streamable-http" or transport_type == "streamable-http":
+        async with streamablehttp_client(url) as (read, write, get_session_id):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                result = await session.call_tool(tool_name, arguments=arguments)
+                return result
+    else:
+        raise ValueError(f"Transport/proxy mode '{proxy_mode or transport_type}' not supported")
+
+
 async def list_tools(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> List[Dict[str, Any]]:
     """
     List tools from all MCP servers running through ToolHive.
