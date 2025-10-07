@@ -11,6 +11,44 @@ import json
 mcp = FastMCP("mcp-shell")
 
 
+# Whitelist of allowed shell commands
+ALLOWED_COMMANDS = [
+    "grep",
+    "jq",
+    "curl",
+    "sort",
+    "uniq",
+    "cut",
+    "sed",
+    "awk",
+    "wc",
+    "head",
+    "tail",
+    "tr",
+    "echo",
+    "printf",
+    "date",
+    "bc",
+]
+
+
+def validate_command(cmd: str) -> None:
+    """Validate that a command only uses allowed commands."""
+    # Extract the first word (the actual command)
+    command_parts = cmd.strip().split()
+    if not command_parts:
+        raise ValueError("Empty command")
+
+    base_command = command_parts[0]
+
+    # Check if it's in the allowed list
+    if base_command not in ALLOWED_COMMANDS:
+        raise ValueError(
+            f"Command '{base_command}' is not allowed. "
+            f"Allowed commands: {', '.join(ALLOWED_COMMANDS)}"
+        )
+
+
 def shell_stage(cmd: str, upstream: Iterable[str]) -> Generator[str, None, None]:
     """Run a shell command as a streaming stage, consuming upstream lazily."""
     proc = subprocess.Popen(
@@ -40,19 +78,31 @@ def shell_stage(cmd: str, upstream: Iterable[str]) -> Generator[str, None, None]
         yield line
 
     rc = proc.wait()
-    if rc != 0:
-        stderr_output = proc.stderr.read() if proc.stderr else ""
-        raise subprocess.CalledProcessError(rc, cmd, stderr=stderr_output)
+
+    # Like shell pipelines, we don't fail on non-zero exit codes
+    # The pipeline continues and only breaks on severe errors (handled by exceptions above)
 
 
 async def tool_stage(server: str, tool: str, args: dict, upstream: Iterable[str]) -> str:
     """Call an MCP tool with upstream data as input."""
     # Collect all upstream data
-    input_data = "".join(upstream)
+    input_data = "".join(upstream).strip()
 
-    # Add input_data to args if not already present
-    if "input" not in args and input_data:
-        args = {**args, "input": input_data}
+    # If there's upstream data, try to parse it as JSON and merge with args
+    if input_data:
+        try:
+            parsed_input = json.loads(input_data)
+            # If parsed input is a dict, merge it with args (args take precedence)
+            if isinstance(parsed_input, dict):
+                args = {**parsed_input, **args}
+            else:
+                # If it's not a dict (e.g., array, string), add as 'input' field
+                if "input" not in args:
+                    args = {**args, "input": parsed_input}
+        except json.JSONDecodeError:
+            # If JSON parsing fails, treat as plain string input
+            if "input" not in args:
+                args = {**args, "input": input_data}
 
     # Call the tool
     result = await mcp_client.call_tool(server, tool, args)
@@ -70,24 +120,7 @@ async def tool_stage(server: str, tool: str, args: dict, upstream: Iterable[str]
 @mcp.tool()
 def list_available_shell_commands() -> list[str]:
     """List basic, safe CLI commands commonly used in shell one-liners"""
-    return [
-        "grep",
-        "jq",
-        "curl",
-        "sort",
-        "uniq",
-        "cut",
-        "sed",
-        "awk",
-        "wc",
-        "head",
-        "tail",
-        "tr",
-        "echo",
-        "printf",
-        "date",
-        "bc",
-    ]
+    return ALLOWED_COMMANDS
 
 
 @mcp.tool()
@@ -111,14 +144,19 @@ async def execute_pipeline(pipeline: list[dict], initial_input: str = "") -> str
         upstream: Iterable[str] = iter([initial_input]) if initial_input else iter([])
 
         # Process each stage in the pipeline
-        for item in pipeline:
+        for idx, item in enumerate(pipeline):
             item_type = item.get("type")
 
             if item_type == "command":
                 command = item.get("command", "")
                 if not command:
                     raise ValueError("Command stage missing 'command' field")
-                upstream = shell_stage(command, upstream)
+                try:
+                    # Validate command before execution
+                    validate_command(command)
+                    upstream = shell_stage(command, upstream)
+                except Exception as e:
+                    raise RuntimeError(f"Stage {idx + 1} (command) failed: {str(e)}")
 
             elif item_type == "tool":
                 tool_name = item.get("name", "")
@@ -130,10 +168,16 @@ async def execute_pipeline(pipeline: list[dict], initial_input: str = "") -> str
                 if not server_name:
                     raise ValueError("Tool stage missing 'server' field")
 
-                # Tool stages consume all upstream and return a result
-                result = await tool_stage(server_name, tool_name, args, upstream)
-                # Convert result back to a stream for next stage
-                upstream = iter([result])
+                try:
+                    # Tool stages consume all upstream and return a result
+                    result = await tool_stage(server_name, tool_name, args, upstream)
+                    # Convert result back to a stream for next stage
+                    # Ensure result ends with newline for proper shell command processing
+                    if result and not result.endswith('\n'):
+                        result += '\n'
+                    upstream = iter([result])
+                except Exception as e:
+                    raise RuntimeError(f"Stage {idx + 1} (tool {server_name}/{tool_name}) failed: {str(e)}")
 
             else:
                 raise ValueError(f"Unknown pipeline item type: {item_type}")
@@ -143,7 +187,9 @@ async def execute_pipeline(pipeline: list[dict], initial_input: str = "") -> str
         return output
 
     except Exception as e:
-        return f"Pipeline execution failed: {str(e)}"
+        import traceback
+        error_details = f"Pipeline execution failed: {str(e)}\n\nTraceback:\n{traceback.format_exc()}"
+        return error_details
 
 
 @mcp.tool()
