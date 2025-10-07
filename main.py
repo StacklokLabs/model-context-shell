@@ -49,72 +49,132 @@ def validate_command(cmd: str) -> None:
         )
 
 
-def shell_stage(cmd: str, upstream: Iterable[str]) -> Generator[str, None, None]:
+def shell_stage(cmd: str, upstream: Iterable[str], for_each: bool = False) -> Generator[str, None, None]:
     """Run a shell command as a streaming stage, consuming upstream lazily."""
-    proc = subprocess.Popen(
-        cmd,
-        shell=True,
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        bufsize=1
-    )
-    assert proc.stdin and proc.stdout
 
-    # Write upstream into the process stdin in the background
-    def _writer():
-        try:
-            for item in upstream:
-                proc.stdin.write(item)
-            proc.stdin.close()
-        except BrokenPipeError:
-            pass
+    if for_each:
+        # Execute command once per input line
+        input_data = "".join(upstream)
+        for line in input_data.strip().split('\n'):
+            if not line.strip():
+                continue
 
-    threading.Thread(target=_writer, daemon=True).start()
+            proc = subprocess.Popen(
+                cmd,
+                shell=True,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
 
-    # Yield stdout as it arrives
-    for line in proc.stdout:
-        yield line
+            # Write single line and get output
+            stdout, _ = proc.communicate(input=line + '\n')
+            for output_line in stdout.splitlines(keepends=True):
+                yield output_line
+    else:
+        # Execute command once with all input (streaming)
+        proc = subprocess.Popen(
+            cmd,
+            shell=True,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1
+        )
+        assert proc.stdin and proc.stdout
 
-    rc = proc.wait()
+        # Write upstream into the process stdin in the background
+        def _writer():
+            try:
+                for item in upstream:
+                    proc.stdin.write(item)
+                proc.stdin.close()
+            except BrokenPipeError:
+                pass
 
-    # Like shell pipelines, we don't fail on non-zero exit codes
-    # The pipeline continues and only breaks on severe errors (handled by exceptions above)
+        threading.Thread(target=_writer, daemon=True).start()
+
+        # Yield stdout as it arrives
+        for line in proc.stdout:
+            yield line
+
+        rc = proc.wait()
+
+        # Like shell pipelines, we don't fail on non-zero exit codes
+        # The pipeline continues and only breaks on severe errors (handled by exceptions above)
 
 
-async def tool_stage(server: str, tool: str, args: dict, upstream: Iterable[str]) -> str:
+async def tool_stage(server: str, tool: str, args: dict, upstream: Iterable[str], for_each: bool = False) -> str:
     """Call an MCP tool with upstream data as input."""
-    # Collect all upstream data
-    input_data = "".join(upstream).strip()
 
-    # If there's upstream data, try to parse it as JSON and merge with args
-    if input_data:
-        try:
-            parsed_input = json.loads(input_data)
-            # If parsed input is a dict, merge it with args (args take precedence)
-            if isinstance(parsed_input, dict):
-                args = {**parsed_input, **args}
+    if for_each:
+        # Execute tool once per line (expecting JSONL input)
+        results = []
+        input_data = "".join(upstream)
+
+        for line in input_data.strip().split('\n'):
+            if not line.strip():
+                continue
+
+            try:
+                # Parse each line as JSON
+                parsed_line = json.loads(line)
+                # Merge with args (args take precedence)
+                if isinstance(parsed_line, dict):
+                    call_args = {**parsed_line, **args}
+                else:
+                    call_args = {**args, "input": parsed_line}
+            except json.JSONDecodeError:
+                # If parsing fails, use as string input
+                call_args = {**args, "input": line}
+
+            # Call the tool
+            result = await mcp_client.call_tool(server, tool, call_args)
+
+            # Extract content from result
+            if hasattr(result, 'content'):
+                for content_item in result.content:
+                    if hasattr(content_item, 'text'):
+                        results.append(content_item.text)
             else:
-                # If it's not a dict (e.g., array, string), add as 'input' field
+                results.append(str(result))
+
+        return '\n'.join(results)
+
+    else:
+        # Execute tool once with all upstream data
+        # Collect all upstream data
+        input_data = "".join(upstream).strip()
+
+        # If there's upstream data, try to parse it as JSON and merge with args
+        if input_data:
+            try:
+                parsed_input = json.loads(input_data)
+                # If parsed input is a dict, merge it with args (args take precedence)
+                if isinstance(parsed_input, dict):
+                    args = {**parsed_input, **args}
+                else:
+                    # If it's not a dict (e.g., array, string), add as 'input' field
+                    if "input" not in args:
+                        args = {**args, "input": parsed_input}
+            except json.JSONDecodeError:
+                # If JSON parsing fails, treat as plain string input
                 if "input" not in args:
-                    args = {**args, "input": parsed_input}
-        except json.JSONDecodeError:
-            # If JSON parsing fails, treat as plain string input
-            if "input" not in args:
-                args = {**args, "input": input_data}
+                    args = {**args, "input": input_data}
 
-    # Call the tool
-    result = await mcp_client.call_tool(server, tool, args)
+        # Call the tool
+        result = await mcp_client.call_tool(server, tool, args)
 
-    # Extract content from result
-    if hasattr(result, 'content'):
-        for content_item in result.content:
-            if hasattr(content_item, 'text'):
-                return content_item.text
+        # Extract content from result
+        if hasattr(result, 'content'):
+            for content_item in result.content:
+                if hasattr(content_item, 'text'):
+                    return content_item.text
 
-    # Fallback to string representation
-    return str(result)
+        # Fallback to string representation
+        return str(result)
 
 
 @mcp.tool()
@@ -130,14 +190,19 @@ async def execute_pipeline(pipeline: list[dict], initial_input: str = "") -> str
 
     Each item in the pipeline should be a dict with:
     - type: "tool" or "command"
+    - for_each: (optional) if true, runs the stage once per input line
     - For tool: name, server, args (optional)
     - For command: command
 
     Example:
     [
         {"type": "command", "command": "echo hello"},
-        {"type": "tool", "name": "greet", "server": "mcp-example", "args": {"name": "world"}}
+        {"type": "tool", "name": "fetch", "server": "fetch", "args": {"url": "..."}, "for_each": true}
     ]
+
+    When for_each is true:
+    - Commands run once per input line
+    - Tools expect JSONL input and parse each line as JSON
     """
     try:
         # Start with initial input as a generator
@@ -146,6 +211,7 @@ async def execute_pipeline(pipeline: list[dict], initial_input: str = "") -> str
         # Process each stage in the pipeline
         for idx, item in enumerate(pipeline):
             item_type = item.get("type")
+            for_each = item.get("for_each", False)
 
             if item_type == "command":
                 command = item.get("command", "")
@@ -154,7 +220,7 @@ async def execute_pipeline(pipeline: list[dict], initial_input: str = "") -> str
                 try:
                     # Validate command before execution
                     validate_command(command)
-                    upstream = shell_stage(command, upstream)
+                    upstream = shell_stage(command, upstream, for_each=for_each)
                 except Exception as e:
                     raise RuntimeError(f"Stage {idx + 1} (command) failed: {str(e)}")
 
@@ -170,7 +236,7 @@ async def execute_pipeline(pipeline: list[dict], initial_input: str = "") -> str
 
                 try:
                     # Tool stages consume all upstream and return a result
-                    result = await tool_stage(server_name, tool_name, args, upstream)
+                    result = await tool_stage(server_name, tool_name, args, upstream, for_each=for_each)
                     # Convert result back to a stream for next stage
                     # Ensure result ends with newline for proper shell command processing
                     if result and not result.endswith('\n'):
