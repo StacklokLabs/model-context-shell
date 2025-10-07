@@ -121,19 +121,26 @@ async def tool_stage(server: str, tool: str, args: dict, upstream: Iterable[str]
             try:
                 # Parse each line as JSON
                 parsed_line = json.loads(line)
-                # Merge with args (args take precedence)
-                if isinstance(parsed_line, dict):
-                    call_args = {**parsed_line, **args}
-                else:
-                    call_args = {**args, "input": parsed_line}
             except json.JSONDecodeError as e:
                 # If parsing fails, provide helpful error message
                 raise ValueError(
                     f"Line {line_num}: Invalid JSON in for_each mode. "
                     f"Tools with for_each require JSONL input (one JSON object per line). "
                     f"Got: {line[:100]}... "
-                    f"Use jq to structure your data, e.g.: jq -c '.[] | {{param_name: .}}'"
+                    f"Use jq to structure your data correctly. "
+                    f"For example, if the tool needs 'url' parameter: jq -c '.[] | {{url: .}}'"
                 ) from e
+
+            # Merge parsed JSON with args (args take precedence)
+            if isinstance(parsed_line, dict):
+                call_args = {**parsed_line, **args}
+            else:
+                # Non-dict JSON values (arrays, strings, numbers) cannot be used directly
+                raise ValueError(
+                    f"Line {line_num}: Expected JSON object, got {type(parsed_line).__name__}. "
+                    f"Tools require parameter names. Got: {json.dumps(parsed_line)[:100]}... "
+                    f"Transform your data into objects, e.g.: jq -c '{{param_name: .}}'"
+                )
 
             # Call the tool
             try:
