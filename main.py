@@ -29,6 +29,9 @@ ALLOWED_COMMANDS = [
     "printf",
     "date",
     "bc",
+    "paste",
+    "shuf",
+    "join",
 ]
 
 
