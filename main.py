@@ -1,18 +1,511 @@
 from fastmcp import FastMCP
 import toolhive_client
+import mcp_client
+import subprocess
+import threading
+from typing import Iterable, Generator
+import asyncio
+import json
+import tempfile
+import os
+from pathlib import Path
 
-mcp = FastMCP("hello-world")
+
+mcp = FastMCP(
+    "mcp-shell",
+    instructions="""
+    This MCP server provides pipeline execution for coordinating tool calls and shell commands.
+
+    KEY PRINCIPLE: Build complete workflows as SINGLE pipeline calls. Don't make multiple
+    execute_pipeline calls where you manually copy/paste data between them. Instead, construct
+    the entire workflow in one pipeline and use jq/grep/sed to transform data between stages.
+
+    Only inspect intermediate results to verify correctness, not to manually pass data around.
+    """
+)
+
+
+# Whitelist of allowed shell commands
+ALLOWED_COMMANDS = [
+    "grep",
+    "jq",
+    "sort",
+    "uniq",
+    "cut",
+    "sed",
+    "awk",
+    "wc",
+    "head",
+    "tail",
+    "tr",
+    "echo",
+    "printf",
+    "date",
+    "bc",
+    "paste",
+    "shuf",
+    "join",
+]
+
+
+def validate_command(cmd: str) -> None:
+    """Validate that a command is in the allowed list."""
+    if not cmd:
+        raise ValueError("Empty command")
+
+    # Check if it's in the allowed list
+    if cmd not in ALLOWED_COMMANDS:
+        raise ValueError(
+            f"Command '{cmd}' is not allowed. "
+            f"Allowed commands: {', '.join(ALLOWED_COMMANDS)}"
+        )
+
+
+def shell_stage(cmd: str, args: list[str], upstream: Iterable[str], for_each: bool = False) -> Generator[str, None, None]:
+    """Run a shell command as a streaming stage, consuming upstream lazily."""
+    # Build command list for subprocess (shell=False for security)
+    cmd_list = [cmd] + args
+
+    if for_each:
+        # Execute command once per input line
+        input_data = "".join(upstream)
+        for line in input_data.strip().split('\n'):
+            if not line.strip():
+                continue
+
+            proc = subprocess.Popen(
+                cmd_list,
+                shell=False,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+
+            # Write single line and get output
+            stdout, _ = proc.communicate(input=line + '\n')
+            for output_line in stdout.splitlines(keepends=True):
+                yield output_line
+    else:
+        # Execute command once with all input (streaming)
+        proc = subprocess.Popen(
+            cmd_list,
+            shell=False,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1
+        )
+        assert proc.stdin and proc.stdout
+
+        # Write upstream into the process stdin in the background
+        def _writer():
+            try:
+                for item in upstream:
+                    proc.stdin.write(item)
+                proc.stdin.close()
+            except BrokenPipeError:
+                pass
+
+        threading.Thread(target=_writer, daemon=True).start()
+
+        # Yield stdout as it arrives
+        for line in proc.stdout:
+            yield line
+
+        rc = proc.wait()
+
+        # Like shell pipelines, we don't fail on non-zero exit codes
+        # The pipeline continues and only breaks on severe errors (handled by exceptions above)
+
+
+async def tool_stage(server: str, tool: str, args: dict, upstream: Iterable[str], for_each: bool = False) -> str:
+    """Call an MCP tool with upstream data as input."""
+
+    if for_each:
+        # Execute tool once per line (expecting JSONL input)
+        results = []
+        input_data = "".join(upstream)
+
+        for line_num, line in enumerate(input_data.strip().split('\n'), 1):
+            if not line.strip():
+                continue
+
+            try:
+                # Parse each line as JSON
+                parsed_line = json.loads(line)
+            except json.JSONDecodeError as e:
+                # If parsing fails, provide helpful error message
+                raise ValueError(
+                    f"Line {line_num}: Invalid JSON in for_each mode. "
+                    f"Tools with for_each require JSONL input (one JSON object per line). "
+                    f"Got: {line[:100]}... "
+                    f"Use jq to structure your data correctly. "
+                    f"For example, if the tool needs 'url' parameter: jq -c '.[] | {{url: .}}'"
+                ) from e
+
+            # Merge parsed JSON with args (args take precedence)
+            if isinstance(parsed_line, dict):
+                call_args = {**parsed_line, **args}
+            else:
+                # Non-dict JSON values (arrays, strings, numbers) cannot be used directly
+                raise ValueError(
+                    f"Line {line_num}: Expected JSON object, got {type(parsed_line).__name__}. "
+                    f"Tools require parameter names. Got: {json.dumps(parsed_line)[:100]}... "
+                    f"Transform your data into objects, e.g.: jq -c '{{param_name: .}}'"
+                )
+
+            # Call the tool
+            try:
+                result = await mcp_client.call_tool(server, tool, call_args)
+            except Exception as e:
+                # Add context about which line failed
+                raise RuntimeError(
+                    f"Line {line_num}: Tool call failed for {server}/{tool}. "
+                    f"Args used: {json.dumps(call_args, indent=2)}. "
+                    f"Error: {str(e)}"
+                ) from e
+
+            # Extract content from result
+            if hasattr(result, 'content'):
+                for content_item in result.content:
+                    if hasattr(content_item, 'text'):
+                        results.append(content_item.text)
+            else:
+                results.append(str(result))
+
+        return '\n'.join(results)
+
+    else:
+        # Execute tool once with all upstream data
+        # Collect all upstream data
+        input_data = "".join(upstream).strip()
+
+        # If there's upstream data, try to parse it as JSON and merge with args
+        if input_data:
+            try:
+                parsed_input = json.loads(input_data)
+                # If parsed input is a dict, merge it with args (args take precedence)
+                if isinstance(parsed_input, dict):
+                    args = {**parsed_input, **args}
+                else:
+                    # If it's not a dict (e.g., array, string), add as 'input' field
+                    if "input" not in args:
+                        args = {**args, "input": parsed_input}
+            except json.JSONDecodeError:
+                # If JSON parsing fails, treat as plain string input
+                if "input" not in args:
+                    args = {**args, "input": input_data}
+
+        # Call the tool
+        result = await mcp_client.call_tool(server, tool, args)
+
+        # Extract content from result
+        if hasattr(result, 'content'):
+            for content_item in result.content:
+                if hasattr(content_item, 'text'):
+                    return content_item.text
+
+        # Fallback to string representation
+        return str(result)
 
 
 @mcp.tool()
-def greet(name: str) -> str:
-    """Greet a person by name"""
-    return f"Hello, {name}!"
+def list_available_shell_commands() -> list[str]:
+    """
+    List basic, safe CLI commands commonly used in shell one-liners.
+
+    These commands are available for use in execute_pipeline for data transformation:
+    - jq: JSON processing and transformation (essential for API data)
+    - grep: Text filtering and pattern matching
+    - sed/awk: Advanced text processing
+    - sort/uniq: Data organization
+
+    ⚠️ SECURITY: In pipelines, specify command name and args separately:
+    {"type": "command", "command": "jq", "args": ["-c", ".foo"]}
+    NOT: {"type": "command", "command": "jq -c .foo"}
+
+    Use these in pipelines for precise data manipulation between tool calls.
+    """
+    return ALLOWED_COMMANDS
+
+
+@mcp.tool()
+async def execute_pipeline(pipeline: list[dict], initial_input: str = "") -> str:
+    """
+    Execute a pipeline of tool calls and shell commands.
+
+    ⚠️ CRITICAL: You should STRONGLY PREFER using pipelines for:
+    - Any coordinated sequence of tool calls (2+ tools working together)
+    - Data extraction, transformation, or mining tasks
+    - Tasks requiring data accuracy and precise filtering
+    - Complex data processing workflows
+    - Any scenario where you need to transform data between tool calls
+
+    ⚠️ CRITICAL WORKFLOW PATTERN - Build Complete Pipelines:
+    - Construct the ENTIRE workflow as a SINGLE pipeline call
+    - DO NOT manually copy data from one execute_pipeline result into another
+    - DO NOT make multiple execute_pipeline calls when one would suffice
+    - Use jq/grep/sed/awk WITHIN the pipeline to transform data between stages
+    - Only inspect intermediate results to VERIFY correctness, not to manually pass data
+    - The pipeline automatically streams data between stages - leverage this!
+
+    Example of CORRECT approach (single pipeline):
+    execute_pipeline([
+        {"type": "tool", "name": "fetch", "server": "fetch", "args": {"url": "..."}},
+        {"type": "command", "command": "jq", "args": ["-c", ".items[] | {id, url}"]},
+        {"type": "tool", "name": "process", "server": "processor", "for_each": true}
+    ])
+
+    Example of WRONG approach (multiple calls with manual data passing):
+    # DON'T DO THIS:
+    result1 = execute_pipeline([{"type": "tool", "name": "fetch", ...}])
+    # Then manually parse result1 in your context and construct result2
+    result2 = execute_pipeline([{"type": "tool", "name": "process", "args": {"data": result1}}])
+
+    Pipelines provide superior data accuracy through:
+    - Shell commands like jq for precise JSON manipulation
+    - grep/sed/awk for text processing
+    - Streaming data between stages without data loss
+    - Automatic data flow - no manual copying needed
+
+    Each item in the pipeline should be a dict with:
+    - type: "tool", "command", or "read_buffers"
+    - for_each: (optional) if true, runs the stage once per input line
+    - save_to: (optional) save stage output to a named buffer for later retrieval
+    - For tool: name, server, args (optional dict)
+    - For command: command (string), args (optional array of strings)
+    - For read_buffers: buffers (array of buffer names to retrieve)
+
+    Example - Fetch and process API data:
+    [
+        {"type": "tool", "name": "fetch", "server": "fetch", "args": {"url": "https://api.example.com/data"}},
+        {"type": "command", "command": "jq", "args": [".items[] | {id, name}"]},
+        {"type": "command", "command": "grep", "args": ["-i", "search_term"]}
+    ]
+
+    Example - Fetch multiple URLs with for_each:
+    [
+        {"type": "tool", "name": "fetch", "server": "fetch", "args": {"url": "https://swapi.dev/api/people/1/"}},
+        {"type": "command", "command": "jq", "args": ["-c", ".films[] | {url: .}"]},  // Convert URLs to JSONL
+        {"type": "tool", "name": "fetch", "server": "fetch", "for_each": true},  // Fetch each URL
+        {"type": "command", "command": "jq", "args": ["-s", "sort_by(.release_date)"]}  // Sort results
+    ]
+
+    Example - Using buffers to save intermediate results:
+    [
+        {"type": "tool", "name": "fetch", "server": "fetch", "args": {"url": "..."}, "save_to": "raw_data"},
+        {"type": "command", "command": "jq", "args": [".items[]"], "save_to": "items"},
+        {"type": "command", "command": "jq", "args": ["length"]},  // Continue processing
+        {"type": "read_buffers", "buffers": ["raw_data", "items"]}  // Retrieve saved buffers as JSON
+    ]
+    // read_buffers returns: {"raw_data": "...", "items": "..."}
+
+    Example - Dynamic tool parameters via jq (for bulk APIs):
+    [
+        {"type": "tool", "name": "fetch", "server": "fetch", "args": {"url": "https://api.com/country/DEU"}},
+        {"type": "command", "command": "jq", "args": ["-c",
+            "{url: \"https://api.com/bulk?codes=\\(.[0].borders | join(\",\"))\"}"]},
+        {"type": "tool", "name": "fetch", "server": "fetch"}  // Gets {"url": "..."} via JSON merging
+    ]
+    // jq constructs the full parameter object, tool receives it automatically
+
+    Example - Process items individually with for_each:
+    [
+        {"type": "tool", "name": "fetch", "server": "fetch", "args": {"url": "https://api.com/country/DEU"}},
+        {"type": "command", "command": "jq", "args": ["-c", ".[0].borders[] | {url: \"https://api.com/\\(.)\"}"]},
+        {"type": "tool", "name": "fetch", "server": "fetch", "for_each": true}  // Fetches each individually
+    ]
+    // for_each processes one item per line - scales to any number of items
+
+    ⚠️ CRITICAL - Command Security:
+    - Command name and arguments MUST be separate fields
+    - Command: string (e.g., "jq"), Args: array of strings (e.g., ["-c", ".foo"])
+    - This prevents shell injection attacks by using shell=False
+    - Never try to combine them into a single string
+
+    ⚠️ CRITICAL - Dynamic tool parameters:
+    - Use jq to construct tool parameter objects dynamically
+    - Tools automatically merge JSON objects from stdin with their args
+    - For bulk operations: jq creates single object with all data
+    - For individual items: jq creates JSONL (one object per line) + use for_each
+    - This enables complex workflows in a single pipeline without manual copying
+
+    ⚠️ CRITICAL for for_each with tools:
+    - Tools with for_each REQUIRE properly structured JSONL input
+    - Each line must be a JSON object with the correct parameter names for that tool
+    - Example: fetch tool needs {"url": "..."} not just "https://..."
+    - Use jq to transform plain values into objects: {"command": "jq", "args": ["-c", ".[] | {url: .}"]}
+
+    When for_each is true:
+    - Commands run once per input line (can be plain text)
+    - Tools run once per line with JSONL input (MUST be properly structured JSON objects)
+    """
+    # Create temporary directory for buffers
+    with tempfile.TemporaryDirectory(prefix="mcp_pipeline_") as temp_dir:
+        temp_path = Path(temp_dir)
+
+        try:
+            # Start with initial input as a generator
+            upstream: Iterable[str] = iter([initial_input]) if initial_input else iter([])
+
+            # Process each stage in the pipeline
+            for idx, item in enumerate(pipeline):
+                item_type = item.get("type")
+                for_each = item.get("for_each", False)
+                save_to = item.get("save_to")
+
+                if item_type == "read_buffers":
+                    # Special stage type: retrieve buffers and return as JSON
+                    buffer_names = item.get("buffers", [])
+                    if not buffer_names:
+                        raise ValueError("read_buffers stage missing 'buffers' field")
+
+                    # Collect requested buffers from disk
+                    result_dict = {}
+                    available_buffers = [f.stem for f in temp_path.glob("*.buf")]
+
+                    for buffer_name in buffer_names:
+                        buffer_file = temp_path / f"{buffer_name}.buf"
+                        if not buffer_file.exists():
+                            raise ValueError(
+                                f"Buffer '{buffer_name}' not found. "
+                                f"Available buffers: {available_buffers}"
+                            )
+                        result_dict[buffer_name] = buffer_file.read_text()
+
+                    # Output as JSON and convert to stream
+                    output = json.dumps(result_dict, indent=2)
+                    upstream = iter([output + '\n'])
+
+                    # Save to buffer if requested
+                    if save_to:
+                        (temp_path / f"{save_to}.buf").write_text(output)
+
+                    continue
+
+                if item_type == "command":
+                    command = item.get("command", "")
+                    cmd_args = item.get("args", [])
+
+                    if not command:
+                        raise ValueError("Command stage missing 'command' field")
+
+                    if not isinstance(cmd_args, list):
+                        raise ValueError(f"Command 'args' must be an array, got {type(cmd_args).__name__}")
+
+                    try:
+                        # Validate command before execution
+                        validate_command(command)
+                        upstream = shell_stage(command, cmd_args, upstream, for_each=for_each)
+
+                        # Save to buffer if requested
+                        if save_to:
+                            output = "".join(upstream)
+                            (temp_path / f"{save_to}.buf").write_text(output)
+                            # Recreate upstream for next stage
+                            upstream = iter([output])
+                    except Exception as e:
+                        raise RuntimeError(f"Stage {idx + 1} (command) failed: {str(e)}")
+
+                elif item_type == "tool":
+                    tool_name = item.get("name", "")
+                    server_name = item.get("server", "")
+                    args = item.get("args", {})
+
+                    if not tool_name:
+                        raise ValueError("Tool stage missing 'name' field")
+                    if not server_name:
+                        raise ValueError("Tool stage missing 'server' field")
+
+                    try:
+                        # Tool stages consume all upstream and return a result
+                        result = await tool_stage(server_name, tool_name, args, upstream, for_each=for_each)
+                        # Convert result back to a stream for next stage
+                        # Ensure result ends with newline for proper shell command processing
+                        if result and not result.endswith('\n'):
+                            result += '\n'
+
+                        # Save to buffer if requested
+                        if save_to:
+                            (temp_path / f"{save_to}.buf").write_text(result)
+
+                        upstream = iter([result])
+                    except Exception as e:
+                        raise RuntimeError(f"Stage {idx + 1} (tool {server_name}/{tool_name}) failed: {str(e)}")
+
+                else:
+                    raise ValueError(f"Unknown pipeline item type: {item_type}")
+
+            # Collect final output
+            output = "".join(upstream)
+            return output
+
+        except Exception as e:
+            import traceback
+            error_details = f"Pipeline execution failed: {str(e)}\n\nTraceback:\n{traceback.format_exc()}"
+            return error_details
+
+
+@mcp.tool()
+async def list_all_tools() -> str:
+    """
+    List all tools available from all MCP servers running through ToolHive.
+
+    Use this to discover available tools, then use execute_pipeline to coordinate multiple tool calls
+    for data processing, transformation, and mining tasks where accuracy is critical.
+
+    ⚠️ IMPORTANT: After discovering tools, build complete workflows as SINGLE pipeline calls.
+    Don't make multiple execute_pipeline calls where you manually pass data between them.
+    Instead, chain all operations together and use jq/grep/sed within the pipeline to transform data.
+    """
+    tools_list = await mcp_client.list_tools()
+
+    if not tools_list:
+        return "No MCP servers found"
+
+    result = []
+    for server in tools_list:
+        workload = server.get("workload", "unknown")
+        status = server.get("status", "unknown")
+        tools = server.get("tools", [])
+        error = server.get("error")
+
+        result.append(f"\n**{workload}**")
+        result.append(f"  Status: {status}")
+
+        if tools:
+            result.append(f"  Tools: {', '.join(tools)}")
+
+        if error:
+            result.append(f"  Error: {error}")
+
+    return "\n".join(result)
 
 
 if __name__ == "__main__":
+    import sys
+
     # Initialize ToolHive client - starts thv serve and lists workloads
     toolhive_client.initialize()
 
-    # Run the MCP server
-    mcp.run()
+    # Run the MCP server with HTTP transport
+    # Check if --transport argument is provided
+    transport = "streamable-http"  # Default to streamable-http for HTTP access
+    port = 8000
+
+    for i, arg in enumerate(sys.argv):
+        if arg == "--transport" and i + 1 < len(sys.argv):
+            transport = sys.argv[i + 1]
+        elif arg == "--port" and i + 1 < len(sys.argv):
+            port = int(sys.argv[i + 1])
+
+    if transport == "stdio":
+        mcp.run(transport="stdio")
+    else:
+        endpoint = "/sse" if transport == "sse" else "/mcp"
+        print(f"\n🚀 Starting MCP server on http://localhost:{port}{endpoint}")
+        print(f"   Transport: {transport}")
+        print(f"   Connect via: http://localhost:{port}{endpoint}\n")
+        mcp.run(transport=transport, port=port)

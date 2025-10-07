@@ -94,6 +94,45 @@ class TestListToolsFromServer:
         assert result["tools"] == ["test_tool_1", "test_tool_2"]
         assert result["error"] is None
 
+    async def test_sse_proxy_connection(self, mocker):
+        """Test successful connection via SSE proxy"""
+        workload = {
+            "name": "test-workload",
+            "status": "running",
+            "transport_type": "stdio",
+            "proxy_mode": "sse",
+            "url": "http://localhost:8080/sse"
+        }
+
+        # Mock the MCP client
+        mock_session = MagicMock()
+        mock_session.initialize = AsyncMock()
+
+        mock_tool = MagicMock()
+        mock_tool.name = "sse_tool"
+
+        mock_tools_response = MagicMock()
+        mock_tools_response.tools = [mock_tool]
+        mock_session.list_tools = AsyncMock(return_value=mock_tools_response)
+
+        mock_client_session = MagicMock()
+        mock_client_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_client_session.__aexit__ = AsyncMock()
+
+        mock_sse = MagicMock()
+        mock_sse.__aenter__ = AsyncMock(return_value=("read", "write"))
+        mock_sse.__aexit__ = AsyncMock()
+
+        mocker.patch("mcp_client.sse_client", return_value=mock_sse)
+        mocker.patch("mcp_client.ClientSession", return_value=mock_client_session)
+
+        result = await mcp_client.list_tools_from_server(workload)
+
+        assert result["workload"] == "test-workload"
+        assert result["status"] == "success"
+        assert result["tools"] == ["sse_tool"]
+        assert result["error"] is None
+
     async def test_unsupported_transport(self):
         """Test unsupported transport type"""
         workload = {
