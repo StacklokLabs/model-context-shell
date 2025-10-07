@@ -6,6 +6,9 @@ import threading
 from typing import Iterable, Generator
 import asyncio
 import json
+import tempfile
+import os
+from pathlib import Path
 
 
 mcp = FastMCP("mcp-shell")
@@ -236,10 +239,12 @@ async def execute_pipeline(pipeline: list[dict], initial_input: str = "") -> str
     - Ability to inspect and transform data at each stage
 
     Each item in the pipeline should be a dict with:
-    - type: "tool" or "command"
+    - type: "tool", "command", or "read_buffers"
     - for_each: (optional) if true, runs the stage once per input line
+    - save_to: (optional) save stage output to a named buffer for later retrieval
     - For tool: name, server, args (optional)
     - For command: command
+    - For read_buffers: buffers (array of buffer names to retrieve)
 
     Example - Fetch and process API data:
     [
@@ -256,6 +261,15 @@ async def execute_pipeline(pipeline: list[dict], initial_input: str = "") -> str
         {"type": "command", "command": "jq -s 'sort_by(.release_date)'"}  // Collect and sort results
     ]
 
+    Example - Using buffers to save intermediate results:
+    [
+        {"type": "tool", "name": "fetch", "server": "fetch", "args": {"url": "..."}, "save_to": "raw_data"},
+        {"type": "command", "command": "jq '.items[]'", "save_to": "items"},
+        {"type": "command", "command": "jq 'length'"},  // Continue processing
+        {"type": "read_buffers", "buffers": ["raw_data", "items"]}  // Retrieve saved buffers as JSON
+    ]
+    // read_buffers returns: {"raw_data": "...", "items": "..."}
+
     ⚠️ CRITICAL for for_each with tools:
     - Tools with for_each REQUIRE properly structured JSONL input
     - Each line must be a JSON object with the correct parameter names for that tool
@@ -266,58 +280,104 @@ async def execute_pipeline(pipeline: list[dict], initial_input: str = "") -> str
     - Commands run once per input line (can be plain text)
     - Tools run once per line with JSONL input (MUST be properly structured JSON objects)
     """
-    try:
-        # Start with initial input as a generator
-        upstream: Iterable[str] = iter([initial_input]) if initial_input else iter([])
+    # Create temporary directory for buffers
+    with tempfile.TemporaryDirectory(prefix="mcp_pipeline_") as temp_dir:
+        temp_path = Path(temp_dir)
 
-        # Process each stage in the pipeline
-        for idx, item in enumerate(pipeline):
-            item_type = item.get("type")
-            for_each = item.get("for_each", False)
+        try:
+            # Start with initial input as a generator
+            upstream: Iterable[str] = iter([initial_input]) if initial_input else iter([])
 
-            if item_type == "command":
-                command = item.get("command", "")
-                if not command:
-                    raise ValueError("Command stage missing 'command' field")
-                try:
-                    # Validate command before execution
-                    validate_command(command)
-                    upstream = shell_stage(command, upstream, for_each=for_each)
-                except Exception as e:
-                    raise RuntimeError(f"Stage {idx + 1} (command) failed: {str(e)}")
+            # Process each stage in the pipeline
+            for idx, item in enumerate(pipeline):
+                item_type = item.get("type")
+                for_each = item.get("for_each", False)
+                save_to = item.get("save_to")
 
-            elif item_type == "tool":
-                tool_name = item.get("name", "")
-                server_name = item.get("server", "")
-                args = item.get("args", {})
+                if item_type == "read_buffers":
+                    # Special stage type: retrieve buffers and return as JSON
+                    buffer_names = item.get("buffers", [])
+                    if not buffer_names:
+                        raise ValueError("read_buffers stage missing 'buffers' field")
 
-                if not tool_name:
-                    raise ValueError("Tool stage missing 'name' field")
-                if not server_name:
-                    raise ValueError("Tool stage missing 'server' field")
+                    # Collect requested buffers from disk
+                    result_dict = {}
+                    available_buffers = [f.stem for f in temp_path.glob("*.buf")]
 
-                try:
-                    # Tool stages consume all upstream and return a result
-                    result = await tool_stage(server_name, tool_name, args, upstream, for_each=for_each)
-                    # Convert result back to a stream for next stage
-                    # Ensure result ends with newline for proper shell command processing
-                    if result and not result.endswith('\n'):
-                        result += '\n'
-                    upstream = iter([result])
-                except Exception as e:
-                    raise RuntimeError(f"Stage {idx + 1} (tool {server_name}/{tool_name}) failed: {str(e)}")
+                    for buffer_name in buffer_names:
+                        buffer_file = temp_path / f"{buffer_name}.buf"
+                        if not buffer_file.exists():
+                            raise ValueError(
+                                f"Buffer '{buffer_name}' not found. "
+                                f"Available buffers: {available_buffers}"
+                            )
+                        result_dict[buffer_name] = buffer_file.read_text()
 
-            else:
-                raise ValueError(f"Unknown pipeline item type: {item_type}")
+                    # Output as JSON and convert to stream
+                    output = json.dumps(result_dict, indent=2)
+                    upstream = iter([output + '\n'])
 
-        # Collect final output
-        output = "".join(upstream)
-        return output
+                    # Save to buffer if requested
+                    if save_to:
+                        (temp_path / f"{save_to}.buf").write_text(output)
 
-    except Exception as e:
-        import traceback
-        error_details = f"Pipeline execution failed: {str(e)}\n\nTraceback:\n{traceback.format_exc()}"
-        return error_details
+                    continue
+
+                if item_type == "command":
+                    command = item.get("command", "")
+                    if not command:
+                        raise ValueError("Command stage missing 'command' field")
+                    try:
+                        # Validate command before execution
+                        validate_command(command)
+                        upstream = shell_stage(command, upstream, for_each=for_each)
+
+                        # Save to buffer if requested
+                        if save_to:
+                            output = "".join(upstream)
+                            (temp_path / f"{save_to}.buf").write_text(output)
+                            # Recreate upstream for next stage
+                            upstream = iter([output])
+                    except Exception as e:
+                        raise RuntimeError(f"Stage {idx + 1} (command) failed: {str(e)}")
+
+                elif item_type == "tool":
+                    tool_name = item.get("name", "")
+                    server_name = item.get("server", "")
+                    args = item.get("args", {})
+
+                    if not tool_name:
+                        raise ValueError("Tool stage missing 'name' field")
+                    if not server_name:
+                        raise ValueError("Tool stage missing 'server' field")
+
+                    try:
+                        # Tool stages consume all upstream and return a result
+                        result = await tool_stage(server_name, tool_name, args, upstream, for_each=for_each)
+                        # Convert result back to a stream for next stage
+                        # Ensure result ends with newline for proper shell command processing
+                        if result and not result.endswith('\n'):
+                            result += '\n'
+
+                        # Save to buffer if requested
+                        if save_to:
+                            (temp_path / f"{save_to}.buf").write_text(result)
+
+                        upstream = iter([result])
+                    except Exception as e:
+                        raise RuntimeError(f"Stage {idx + 1} (tool {server_name}/{tool_name}) failed: {str(e)}")
+
+                else:
+                    raise ValueError(f"Unknown pipeline item type: {item_type}")
+
+            # Collect final output
+            output = "".join(upstream)
+            return output
+
+        except Exception as e:
+            import traceback
+            error_details = f"Pipeline execution failed: {str(e)}\n\nTraceback:\n{traceback.format_exc()}"
+            return error_details
 
 
 @mcp.tool()
