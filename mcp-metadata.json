@@ -1,0 +1,40 @@
+{
+  "server": {
+    "name": "model-context-shell",
+    "description": "A shell interface for coordinating MCP tool calls using Unix-style pipelines",
+    "tier": "Community",
+    "status": "Active",
+    "transport": "streamable-http",
+    "tools": [
+      "execute_pipeline",
+      "list_all_tools",
+      "list_available_shell_commands"
+    ],
+    "metadata": {
+      "version": "0.1.0"
+    },
+    "repository_url": "https://github.com/StacklokLabs/model-context-shell",
+    "tags": [
+      "shell",
+      "pipeline",
+      "unix",
+      "coordination",
+      "workflow",
+      "mcp",
+      "modelcontextprotocol"
+    ],
+    "image": "ghcr.io/stackloklabs/model-context-shell:latest",
+    "permissions": {
+      "network": {
+        "outbound": {
+          "insecure_allow_all": true,
+          "allow_port": [
+            443,
+            8080
+          ]
+        }
+      }
+    }
+  },
+  "is_remote": false
+}

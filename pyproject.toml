@@ -1,7 +1,7 @@
 [project]
-name = "mcp-shell"
+name = "model-context-shell"
 version = "0.1.0"
-description = "Add your description here"
+description = "A shell interface for coordinating MCP tool calls using Unix-style pipelines"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [

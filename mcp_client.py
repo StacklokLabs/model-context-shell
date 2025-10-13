@@ -11,7 +11,14 @@ DEFAULT_PORT = 8080
 
 
 async def get_workloads(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> List[Dict[str, Any]]:
-    """Get list of workloads from ToolHive API"""
+    """
+    Get list of workloads from ToolHive API.
+
+    Also handles container networking by rewriting localhost URLs to use the
+    actual ToolHive host, enabling inter-container communication.
+    """
+    from urllib.parse import urlparse
+
     base_url = f"http://{host}:{port}"
     endpoint = "/api/v1beta/workloads"
 
@@ -21,8 +28,22 @@ async def get_workloads(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> L
         response = await client.get(f"{base_url}{endpoint}", headers=headers)
         response.raise_for_status()
         data = response.json()
-        # API returns {"workloads": [...]} so extract the list
-        return data.get("workloads", [])
+        workloads = data.get("workloads", [])
+
+        # Fix container networking: rewrite localhost URLs
+        # When running in a container, URLs with 'localhost' or '127.0.0.1'
+        # won't work for inter-container communication
+        for workload in workloads:
+            url = workload.get("url")
+            if url:
+                parsed_url = urlparse(url)
+                workload_host = parsed_url.hostname
+
+                # If the workload uses localhost, replace with actual ToolHive host
+                if workload_host in ("localhost", "127.0.0.1"):
+                    workload["url"] = url.replace(workload_host, host)
+
+        return workloads
 
 
 async def list_tools_from_server(workload: Dict[str, Any]) -> Dict[str, Any]:
