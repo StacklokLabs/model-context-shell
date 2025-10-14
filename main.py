@@ -12,7 +12,7 @@ from pathlib import Path
 
 
 mcp = FastMCP(
-    "mcp-shell",
+    "model-context-shell",
     instructions="""
     This MCP server provides pipeline execution for coordinating tool calls and shell commands.
 
@@ -486,26 +486,40 @@ async def list_all_tools() -> str:
 
 if __name__ == "__main__":
     import sys
+    import os
 
-    # Initialize ToolHive client - starts thv serve and lists workloads
-    toolhive_client.initialize()
+    # Check if running in container (ToolHive will manage thv serve)
+    # If TOOLHIVE_HOST is set, we're in container mode and shouldn't start thv serve
+    in_container = os.environ.get("TOOLHIVE_HOST") is not None
+
+    if not in_container:
+        # Local development mode: Initialize ToolHive client - starts thv serve and lists workloads
+        toolhive_client.initialize()
+    else:
+        # Container mode: Skip ToolHive discovery during startup
+        # Tools will be discovered dynamically when execute_pipeline is called
+        print("Running in container mode - ToolHive connection will be established on first tool use\n")
 
     # Run the MCP server with HTTP transport
     # Check if --transport argument is provided
     transport = "streamable-http"  # Default to streamable-http for HTTP access
     port = 8000
+    host = "0.0.0.0" if in_container else "127.0.0.1"  # Bind to 0.0.0.0 in container for external access
 
     for i, arg in enumerate(sys.argv):
         if arg == "--transport" and i + 1 < len(sys.argv):
             transport = sys.argv[i + 1]
         elif arg == "--port" and i + 1 < len(sys.argv):
             port = int(sys.argv[i + 1])
+        elif arg == "--host" and i + 1 < len(sys.argv):
+            host = sys.argv[i + 1]
 
     if transport == "stdio":
         mcp.run(transport="stdio")
     else:
         endpoint = "/sse" if transport == "sse" else "/mcp"
-        print(f"\n🚀 Starting MCP server on http://localhost:{port}{endpoint}")
+        print(f"\n🚀 Starting Model Context Shell on http://{host}:{port}{endpoint}")
         print(f"   Transport: {transport}")
+        print(f"   Bind address: {host}")
         print(f"   Connect via: http://localhost:{port}{endpoint}\n")
-        mcp.run(transport=transport, port=port)
+        mcp.run(transport=transport, host=host, port=port)
