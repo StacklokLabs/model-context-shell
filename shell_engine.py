@@ -34,7 +34,12 @@ ALLOWED_COMMANDS = [
     "paste",
     "shuf",
     "join",
+    "sleep",  # For testing timeout functionality
 ]
+
+# Default timeout for shell commands (30 seconds)
+# This prevents commands from hanging forever while being reasonable for most operations
+DEFAULT_TIMEOUT = 30.0
 
 
 class ShellEngine:
@@ -49,7 +54,8 @@ class ShellEngine:
     def __init__(
         self,
         tool_caller: Callable[[str, str, Dict[str, Any]], Awaitable[Any]],
-        allowed_commands: list[str] = None
+        allowed_commands: list[str] = None,
+        default_timeout: float = None
     ):
         """
         Initialize the ShellEngine.
@@ -58,9 +64,11 @@ class ShellEngine:
             tool_caller: Async function that calls external tools.
                          Signature: async def(server: str, tool: str, args: dict) -> Any
             allowed_commands: List of allowed shell commands. Defaults to ALLOWED_COMMANDS.
+            default_timeout: Default timeout in seconds for shell commands. Defaults to DEFAULT_TIMEOUT (30s).
         """
         self.tool_caller = tool_caller
         self.allowed_commands = allowed_commands or ALLOWED_COMMANDS
+        self.default_timeout = default_timeout if default_timeout is not None else DEFAULT_TIMEOUT
 
     def validate_command(self, cmd: str) -> None:
         """Validate that a command is in the allowed list."""
@@ -82,9 +90,16 @@ class ShellEngine:
         cmd: str,
         args: list[str],
         upstream: Iterable[str],
-        for_each: bool = False
+        for_each: bool = False,
+        timeout: float = None
     ) -> Generator[str, None, None]:
         """Run a shell command as a streaming stage, consuming upstream lazily."""
+        # Validate and set timeout
+        if timeout is not None and timeout <= 0:
+            raise ValueError(f"timeout must be positive, got {timeout}")
+
+        actual_timeout = timeout if timeout is not None else self.default_timeout
+
         # Build command list for subprocess (shell=False for security)
         cmd_list = [cmd] + args
 
@@ -104,39 +119,39 @@ class ShellEngine:
                     text=True
                 )
 
-                # Write single line and get output
-                stdout, _ = proc.communicate(input=line + '\n')
-                for output_line in stdout.splitlines(keepends=True):
-                    yield output_line
+                # Write single line and get output with timeout
+                try:
+                    stdout, _ = proc.communicate(input=line + '\n', timeout=actual_timeout)
+                    for output_line in stdout.splitlines(keepends=True):
+                        yield output_line
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait()
+                    raise TimeoutError(f"Command '{cmd}' timed out after {actual_timeout} seconds")
         else:
-            # Execute command once with all input (streaming)
+            # Execute command once with all input
             proc = subprocess.Popen(
                 cmd_list,
                 shell=False,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                text=True,
-                bufsize=1
+                text=True
             )
-            assert proc.stdin and proc.stdout
 
-            # Write upstream into the process stdin in the background
-            def _writer():
-                try:
-                    for item in upstream:
-                        proc.stdin.write(item)
-                    proc.stdin.close()
-                except BrokenPipeError:
-                    pass
+            # Collect all upstream data
+            input_data = "".join(upstream)
 
-            threading.Thread(target=_writer, daemon=True).start()
-
-            # Yield stdout as it arrives
-            for line in proc.stdout:
-                yield line
-
-            rc = proc.wait()
+            # Use communicate with timeout for proper timeout handling
+            try:
+                stdout, _ = proc.communicate(input=input_data, timeout=actual_timeout)
+                # Yield all output lines
+                for line in stdout.splitlines(keepends=True):
+                    yield line
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+                raise TimeoutError(f"Command '{cmd}' timed out after {actual_timeout} seconds")
 
             # Like shell pipelines, we don't fail on non-zero exit codes
             # The pipeline continues and only breaks on severe errors (handled by exceptions above)
@@ -295,6 +310,7 @@ class ShellEngine:
                     if item_type == "command":
                         command = item.get("command", "")
                         cmd_args = item.get("args", [])
+                        cmd_timeout = item.get("timeout")  # Optional timeout for this specific command
 
                         if not command:
                             raise ValueError("Command stage missing 'command' field")
@@ -305,7 +321,7 @@ class ShellEngine:
                         try:
                             # Validate command before execution
                             self.validate_command(command)
-                            upstream = self.shell_stage(command, cmd_args, upstream, for_each=for_each)
+                            upstream = self.shell_stage(command, cmd_args, upstream, for_each=for_each, timeout=cmd_timeout)
 
                             # Save to buffer if requested
                             if save_to:

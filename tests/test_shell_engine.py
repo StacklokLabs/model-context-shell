@@ -2,6 +2,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 from shell_engine import ShellEngine
 import json
+import time
 
 
 class MockToolResult:
@@ -513,3 +514,120 @@ class TestErrorHandling:
 
         assert "Pipeline execution failed" in result
         assert "missing 'buffers' field" in result
+
+
+@pytest.mark.asyncio
+class TestShellCommandTimeouts:
+    """Test timeout functionality for shell commands."""
+
+    @pytest.mark.timeout(3)
+    async def test_shell_stage_with_custom_timeout(self):
+        """Test that shell_stage accepts and uses a custom timeout."""
+        mock_caller = AsyncMock()
+        engine = ShellEngine(tool_caller=mock_caller)
+
+        # Fast command should complete within timeout
+        upstream = iter(["test"])
+        result = list(engine.shell_stage("echo", ["hello"], upstream, timeout=5.0))
+
+        output = "".join(result).strip()
+        assert "hello" in output
+
+    @pytest.mark.timeout(3)
+    async def test_shell_stage_timeout_slow_command(self):
+        """Test that slow commands are terminated when timeout is exceeded."""
+        mock_caller = AsyncMock()
+        engine = ShellEngine(tool_caller=mock_caller)
+
+        # Command that sleeps for 10 seconds, but timeout is 1 second
+        upstream = iter([""])
+
+        start = time.time()
+        with pytest.raises(TimeoutError):
+            list(engine.shell_stage("sleep", ["10"], upstream, timeout=1.0))
+        elapsed = time.time() - start
+
+        # Should timeout in ~1 second, not wait 10 seconds
+        assert elapsed < 2.0, f"Timeout took too long: {elapsed} seconds"
+
+    @pytest.mark.timeout(5)
+    async def test_shell_stage_default_timeout_exists(self):
+        """Test that shell_stage has a default timeout to prevent hanging forever."""
+        mock_caller = AsyncMock()
+        # Use a shorter default timeout for testing (2 seconds instead of 30)
+        engine = ShellEngine(tool_caller=mock_caller, default_timeout=2.0)
+
+        # Command that would hang forever without timeout
+        upstream = iter([""])
+
+        start = time.time()
+        # Should timeout with default timeout (not hang forever)
+        with pytest.raises(TimeoutError):
+            list(engine.shell_stage("sleep", ["999"], upstream))
+        elapsed = time.time() - start
+
+        # Should timeout within reasonable time (should be ~2s)
+        assert elapsed < 3.0, f"Default timeout is too long: {elapsed} seconds"
+        assert elapsed > 1.5, f"Default timeout is too short: {elapsed} seconds"
+
+    @pytest.mark.timeout(3)
+    async def test_execute_pipeline_command_timeout(self):
+        """Test that execute_pipeline respects command timeouts."""
+        mock_caller = AsyncMock()
+        engine = ShellEngine(tool_caller=mock_caller)
+
+        # Pipeline with a command that times out
+        pipeline = [
+            {"type": "command", "command": "sleep", "args": ["10"], "timeout": 1.0}
+        ]
+
+        start = time.time()
+        result = await engine.execute_pipeline(pipeline)
+        elapsed = time.time() - start
+
+        # Should fail with timeout error
+        assert "timeout" in result.lower() or "timed out" in result.lower()
+        assert elapsed < 2.0, f"Timeout took too long: {elapsed} seconds"
+
+    @pytest.mark.timeout(5)
+    async def test_execute_pipeline_for_each_with_timeout(self):
+        """Test that for_each mode respects timeouts."""
+        mock_caller = AsyncMock()
+        engine = ShellEngine(tool_caller=mock_caller)
+
+        # Each line would cause a slow command, but should timeout
+        pipeline = [
+            {"type": "command", "command": "echo", "args": ["line1\nline2"]},
+            {"type": "command", "command": "sleep", "args": ["10"], "for_each": True, "timeout": 1.0}
+        ]
+
+        start = time.time()
+        result = await engine.execute_pipeline(pipeline)
+        elapsed = time.time() - start
+
+        # Should timeout quickly, not wait 20 seconds (10s × 2 lines)
+        assert elapsed < 3.0, f"For-each timeout took too long: {elapsed} seconds"
+
+    async def test_shell_stage_zero_timeout_rejected(self):
+        """Test that zero or negative timeouts are rejected."""
+        mock_caller = AsyncMock()
+        engine = ShellEngine(tool_caller=mock_caller)
+
+        upstream = iter(["test"])
+
+        with pytest.raises(ValueError, match="timeout.*positive|invalid"):
+            list(engine.shell_stage("echo", ["test"], upstream, timeout=0))
+
+        with pytest.raises(ValueError, match="timeout.*positive|invalid"):
+            list(engine.shell_stage("echo", ["test"], upstream, timeout=-1))
+
+    async def test_engine_initialization_with_default_timeout(self):
+        """Test that ShellEngine can be initialized with a custom default timeout."""
+        mock_caller = AsyncMock()
+
+        # Initialize with custom default timeout
+        engine = ShellEngine(tool_caller=mock_caller, default_timeout=5.0)
+
+        # Verify the default timeout is set
+        assert hasattr(engine, 'default_timeout')
+        assert engine.default_timeout == 5.0
