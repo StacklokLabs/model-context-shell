@@ -74,6 +74,10 @@ ENV PATH="/app/.venv/bin:$PATH"
 EXPOSE 8000
 
 # Health check
+# TODO: This endpoint (/mcp/health) does not actually exist in FastMCP.
+# Health checks will always fail until a custom health endpoint is implemented.
+# To fix: Add @mcp.custom_route("/health", methods=["GET"]) in main.py
+# and update this to check http://localhost:8000/health instead.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD ["/app/.venv/bin/python", "-c", "import httpx; httpx.get('http://localhost:8000/mcp/health', timeout=5.0)"] || exit 1
 
