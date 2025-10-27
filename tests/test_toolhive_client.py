@@ -109,6 +109,8 @@ class TestInitialize:
             "endpoint": "/api/v1beta/workloads",
             "data": []
         }
+        # Mock mcp_client.list_tools to prevent coroutine creation
+        mocker.patch("mcp_client.list_tools", return_value=[])
         mocker.patch("asyncio.run", return_value=[])
 
         result = toolhive_client.initialize()
@@ -127,6 +129,8 @@ class TestInitialize:
             "success": False,
             "error": "Connection refused"
         }
+        # Mock mcp_client.list_tools to prevent coroutine creation
+        mocker.patch("mcp_client.list_tools", return_value=[])
         mocker.patch("asyncio.run", return_value=[])
 
         result = toolhive_client.initialize()

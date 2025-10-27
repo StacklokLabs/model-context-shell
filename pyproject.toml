@@ -15,3 +15,8 @@ dev = [
     "pytest-asyncio>=1.2.0",
     "pytest-mock>=3.15.1",
 ]
+
+[tool.pytest.ini_options]
+filterwarnings = [
+    "ignore::RuntimeWarning:_pytest.unraisableexception",
+]
