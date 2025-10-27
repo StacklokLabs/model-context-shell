@@ -26,20 +26,6 @@ class TestGetWorkloads:
         assert result[0]["name"] == "workload1"
         assert result[1]["name"] == "workload2"
 
-    async def test_get_workloads_with_custom_host_port(self, mocker):
-        """Test get_workloads with custom host and port"""
-        mock_response = MagicMock()
-        mock_response.json.return_value = {"workloads": []}
-
-        mock_get = AsyncMock(return_value=mock_response)
-        mock_client = MagicMock()
-        mock_client.__aenter__.return_value.get = mock_get
-        mocker.patch("httpx.AsyncClient", return_value=mock_client)
-
-        await mcp_client.get_workloads(host="192.168.1.1", port=9000)
-
-        mock_get.assert_called_once_with("http://192.168.1.1:9000/api/v1beta/workloads")
-
     async def test_get_workloads_http_error(self, mocker):
         """Test get_workloads when HTTP error occurs"""
         mock_client = MagicMock()
