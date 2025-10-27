@@ -104,12 +104,42 @@ class ShellEngine:
         cmd_list = [cmd] + args
 
         if for_each:
-            # Execute command once per input line
-            input_data = "".join(upstream)
-            for line in input_data.strip().split('\n'):
-                if not line.strip():
-                    continue
+            # Execute command once per input line, streaming from upstream
+            # Buffer to accumulate partial lines
+            buffer = ""
 
+            for chunk in upstream:
+                # Add chunk to buffer
+                buffer += chunk
+
+                # Process all complete lines in buffer
+                while '\n' in buffer:
+                    line, buffer = buffer.split('\n', 1)
+
+                    if not line.strip():
+                        continue
+
+                    proc = subprocess.Popen(
+                        cmd_list,
+                        shell=False,
+                        stdin=subprocess.PIPE,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True
+                    )
+
+                    # Write single line and get output with timeout
+                    try:
+                        stdout, _ = proc.communicate(input=line + '\n', timeout=actual_timeout)
+                        for output_line in stdout.splitlines(keepends=True):
+                            yield output_line
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+                        proc.wait()
+                        raise TimeoutError(f"Command '{cmd}' timed out after {actual_timeout} seconds")
+
+            # Process any remaining data in buffer (line without trailing newline)
+            if buffer.strip():
                 proc = subprocess.Popen(
                     cmd_list,
                     shell=False,
@@ -119,9 +149,8 @@ class ShellEngine:
                     text=True
                 )
 
-                # Write single line and get output with timeout
                 try:
-                    stdout, _ = proc.communicate(input=line + '\n', timeout=actual_timeout)
+                    stdout, _ = proc.communicate(input=buffer + '\n', timeout=actual_timeout)
                     for output_line in stdout.splitlines(keepends=True):
                         yield output_line
                 except subprocess.TimeoutExpired:
@@ -167,13 +196,70 @@ class ShellEngine:
         """Call a tool with upstream data as input."""
 
         if for_each:
-            # Execute tool once per line (expecting JSONL input)
+            # Execute tool once per line (expecting JSONL input), streaming from upstream
             results = []
-            input_data = "".join(upstream)
+            buffer = ""
+            line_num = 0
 
-            for line_num, line in enumerate(input_data.strip().split('\n'), 1):
-                if not line.strip():
-                    continue
+            for chunk in upstream:
+                # Add chunk to buffer
+                buffer += chunk
+
+                # Process all complete lines in buffer
+                while '\n' in buffer:
+                    line, buffer = buffer.split('\n', 1)
+                    line_num += 1
+
+                    if not line.strip():
+                        continue
+
+                    try:
+                        # Parse each line as JSON
+                        parsed_line = json.loads(line)
+                    except json.JSONDecodeError as e:
+                        # If parsing fails, provide helpful error message
+                        raise ValueError(
+                            f"Line {line_num}: Invalid JSON in for_each mode. "
+                            f"Tools with for_each require JSONL input (one JSON object per line). "
+                            f"Got: {line[:100]}... "
+                            f"Use jq to structure your data correctly. "
+                            f"For example, if the tool needs 'url' parameter: jq -c '.[] | {{url: .}}'"
+                        ) from e
+
+                    # Merge parsed JSON with args (args take precedence)
+                    if isinstance(parsed_line, dict):
+                        call_args = {**parsed_line, **args}
+                    else:
+                        # Non-dict JSON values (arrays, strings, numbers) cannot be used directly
+                        raise ValueError(
+                            f"Line {line_num}: Expected JSON object, got {type(parsed_line).__name__}. "
+                            f"Tools require parameter names. Got: {json.dumps(parsed_line)[:100]}... "
+                            f"Transform your data into objects, e.g.: jq -c '{{param_name: .}}'"
+                        )
+
+                    # Call the tool
+                    try:
+                        result = await self.tool_caller(server, tool, call_args)
+                    except Exception as e:
+                        # Add context about which line failed
+                        raise RuntimeError(
+                            f"Line {line_num}: Tool call failed for {server}/{tool}. "
+                            f"Args used: {json.dumps(call_args, indent=2)}. "
+                            f"Error: {str(e)}"
+                        ) from e
+
+                    # Extract content from result
+                    if hasattr(result, 'content'):
+                        for content_item in result.content:
+                            if hasattr(content_item, 'text'):
+                                results.append(content_item.text)
+                    else:
+                        results.append(str(result))
+
+            # Process any remaining data in buffer (line without trailing newline)
+            if buffer.strip():
+                line_num += 1
+                line = buffer
 
                 try:
                     # Parse each line as JSON

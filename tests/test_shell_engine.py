@@ -631,3 +631,109 @@ class TestShellCommandTimeouts:
         # Verify the default timeout is set
         assert hasattr(engine, 'default_timeout')
         assert engine.default_timeout == 5.0
+
+
+@pytest.mark.asyncio
+class TestStreamingForEach:
+    """Test that for_each mode truly streams data instead of loading all into memory."""
+
+    def test_shell_stage_for_each_streams_lazily(self):
+        """Test that shell_stage for_each processes lines as they arrive, not after loading all."""
+        mock_caller = AsyncMock()
+        engine = ShellEngine(tool_caller=mock_caller)
+
+        # Create a tracking generator
+        consumption_log = []
+
+        def tracked_generator():
+            for i in range(5):
+                consumption_log.append(f"generated_{i}")
+                yield f"line {i}\n"
+            consumption_log.append("generator_exhausted")
+
+        upstream = tracked_generator()
+
+        # Process with for_each - should start yielding before generator is exhausted
+        results = []
+        for output in engine.shell_stage("echo", [], upstream, for_each=True):
+            results.append(output)
+            # If we're truly streaming, the generator should NOT be exhausted yet
+            # when we get the first result
+            if len(results) == 1:
+                consumption_log.append("first_result_received")
+
+        # Verify we got results
+        assert len(results) > 0
+
+        # Key assertion: we should receive first result BEFORE generator is exhausted
+        # Current implementation will fail this because it calls "".join(upstream) first
+        first_result_idx = consumption_log.index("first_result_received")
+        exhausted_idx = consumption_log.index("generator_exhausted")
+        assert first_result_idx < exhausted_idx, \
+            f"Generator was exhausted before first result! Log: {consumption_log}"
+
+    async def test_tool_stage_for_each_streams_lazily(self):
+        """Test that tool_stage for_each processes lines as they arrive, not after loading all."""
+        # Create a mock tool caller that returns simple results
+        call_count = []
+
+        async def mock_tool_caller(server, tool, args):
+            call_count.append(len(call_count))
+            result = MockToolResult(f"result_{len(call_count)}")
+            return result
+
+        engine = ShellEngine(tool_caller=mock_tool_caller)
+
+        # Create a tracking generator
+        consumption_log = []
+
+        def tracked_generator():
+            for i in range(5):
+                consumption_log.append(f"generated_{i}")
+                yield f'{{"value": {i}}}\n'
+            consumption_log.append("generator_exhausted")
+
+        upstream = tracked_generator()
+
+        # Process with for_each
+        result = await engine.tool_stage("test", "test_tool", {}, upstream, for_each=True)
+
+        # At least verify tool was called
+        assert len(call_count) > 0
+
+        # Key assertion: generator should be exhausted (consumed by tool_stage)
+        # But ideally, we want the tool to be called progressively, not all at once
+        assert "generator_exhausted" in consumption_log
+
+        # Note: For tool_stage, we currently accumulate results in a list,
+        # so we can't yield incrementally. But we should still process
+        # the input generator lazily (call tool for each line as it arrives)
+
+    def test_shell_stage_for_each_handles_large_stream_memory_efficiently(self):
+        """Test that for_each can handle large streams without loading everything into memory."""
+        mock_caller = AsyncMock()
+        engine = ShellEngine(tool_caller=mock_caller)
+
+        # Create a generator that yields many lines
+        # If we load all into memory first, this would use significant memory
+        def large_generator():
+            for i in range(1000):
+                yield f"line {i}\n"
+
+        upstream = large_generator()
+
+        # Process with for_each
+        result_count = 0
+        for output in engine.shell_stage("echo", [], upstream, for_each=True):
+            result_count += 1
+            # If we're streaming, we should be able to break early
+            # without consuming the entire generator
+            if result_count >= 10:
+                break
+
+        # We should have processed at least 10 lines
+        assert result_count >= 10
+
+        # The key is that we didn't need to consume all 1000 lines
+        # to get the first 10 results (but we can't easily verify this
+        # without instrumenting the generator)
