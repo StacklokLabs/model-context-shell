@@ -66,7 +66,8 @@ async def execute_pipeline(pipeline: list[dict], initial_input: str = "") -> str
     Tool Stage:
     {"type": "tool", "name": "tool_name", "server": "server_name", "args": {...}}
     - Calls a tool from an MCP server (get names from list_all_tools)
-    - For tools accepting JSON, pipeline automatically merges upstream data with args
+    - Automatically merges upstream JSON data with args before calling tool
+    - ⚠️ If upstream has extra fields the tool doesn't accept, use jq to filter first
 
     Command Stage:
     {"type": "command", "command": "jq", "args": ["-c", ".field"]}
@@ -86,12 +87,17 @@ async def execute_pipeline(pipeline: list[dict], initial_input: str = "") -> str
 
     Example - Process multiple items with for_each:
     [
-        {"type": "tool", "name": "list_items", "server": "api"},
-        {"type": "command", "command": "jq", "args": ["-c", ".[] | {id: .id}"]},
-        {"type": "tool", "name": "get_details", "server": "api", "for_each": true}
+        {"type": "tool", "name": "list_users", "server": "api", "args": {}},
+        {"type": "command", "command": "jq", "args": ["-c", ".users[] | {user_id: .id}"]},
+        {"type": "tool", "name": "get_profile", "server": "api", "for_each": true}
     ]
-    Note: for_each with tools requires JSONL input (one JSON object per line).
-    Use jq to transform data into this format.
+
+    How for_each works:
+    - Requires JSONL input (one JSON object per line from jq)
+    - Calls the tool once per line, collecting all results into an array
+    - IMPORTANT: Use jq to extract ONLY the fields the tool accepts
+      Example: If get_profile only accepts {user_id: "..."}, use jq to create that exact structure
+      This avoids "unexpected additional properties" errors from automatic merging
 
     Example - Save intermediate results:
     [
@@ -99,13 +105,16 @@ async def execute_pipeline(pipeline: list[dict], initial_input: str = "") -> str
         {"type": "command", "command": "jq", "args": [".processed"]},
         {"type": "read_buffers", "buffers": ["raw"]}
     ]
+    ⚠️ Buffer Lifecycle: Buffers only exist within a single execute_pipeline() call.
+    You cannot save a buffer in one pipeline and read it in another - they are
+    automatically cleaned up when the pipeline completes.
 
     Best Practices:
     - Build complete workflows as single pipelines (don't split unnecessarily)
-    - Use jq to transform data between stages
     - Check list_all_tools first to see what's available
-    - Use get_tool_details(server, tool_name) to see tool parameters
-    - Use for_each to process collections item-by-item
+    - Use get_tool_details(server, tool_name) to see exact tool parameters/schema
+    - Use jq to filter data to match the tool's expected fields (prevents schema errors)
+    - Use for_each to process collections item-by-item (results collected into array)
     """
     return await engine.execute_pipeline(pipeline, initial_input)
 
