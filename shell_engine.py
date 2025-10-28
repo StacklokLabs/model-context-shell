@@ -10,8 +10,6 @@ import threading
 from typing import Iterable, Generator, Callable, Awaitable, Any, Dict
 import asyncio
 import json
-import tempfile
-from pathlib import Path
 
 
 # Whitelist of allowed shell commands
@@ -350,108 +348,63 @@ class ShellEngine:
         Returns:
             Final output of the pipeline
         """
-        # Create temporary directory for buffers
-        with tempfile.TemporaryDirectory(prefix="mcp_pipeline_") as temp_dir:
-            temp_path = Path(temp_dir)
+        try:
+            # Start with initial input as a generator
+            upstream: Iterable[str] = iter([initial_input]) if initial_input else iter([])
 
-            try:
-                # Start with initial input as a generator
-                upstream: Iterable[str] = iter([initial_input]) if initial_input else iter([])
+            # Process each stage in the pipeline
+            for idx, item in enumerate(pipeline):
+                item_type = item.get("type")
+                for_each = item.get("for_each", False)
 
-                # Process each stage in the pipeline
-                for idx, item in enumerate(pipeline):
-                    item_type = item.get("type")
-                    for_each = item.get("for_each", False)
-                    save_to = item.get("save_to")
+                if item_type == "command":
+                    command = item.get("command", "")
+                    cmd_args = item.get("args", [])
+                    cmd_timeout = item.get("timeout")  # Optional timeout for this specific command
 
-                    if item_type == "read_buffers":
-                        # Special stage type: retrieve buffers and return as JSON
-                        buffer_names = item.get("buffers", [])
-                        if not buffer_names:
-                            raise ValueError("read_buffers stage missing 'buffers' field")
+                    if not command:
+                        raise ValueError("Command stage missing 'command' field")
 
-                        # Collect requested buffers from disk
-                        result_dict = {}
-                        available_buffers = [f.stem for f in temp_path.glob("*.buf")]
+                    if not isinstance(cmd_args, list):
+                        raise ValueError(f"Command 'args' must be an array, got {type(cmd_args).__name__}")
 
-                        for buffer_name in buffer_names:
-                            buffer_file = temp_path / f"{buffer_name}.buf"
-                            if not buffer_file.exists():
-                                raise ValueError(
-                                    f"Buffer '{buffer_name}' not found. "
-                                    f"Available buffers: {available_buffers}"
-                                )
-                            result_dict[buffer_name] = buffer_file.read_text()
+                    try:
+                        # Validate command before execution
+                        self.validate_command(command)
+                        upstream = self.shell_stage(command, cmd_args, upstream, for_each=for_each, timeout=cmd_timeout)
+                    except Exception as e:
+                        raise RuntimeError(f"Stage {idx + 1} (command) failed: {str(e)}")
 
-                        # Output as JSON and convert to stream
-                        output = json.dumps(result_dict, indent=2)
-                        upstream = iter([output + '\n'])
+                elif item_type == "tool":
+                    tool_name = item.get("name", "")
+                    server_name = item.get("server", "")
+                    args = item.get("args", {})
 
-                        # Save to buffer if requested
-                        if save_to:
-                            (temp_path / f"{save_to}.buf").write_text(output)
+                    if not tool_name:
+                        raise ValueError("Tool stage missing 'name' field")
+                    if not server_name:
+                        raise ValueError("Tool stage missing 'server' field")
 
-                        continue
+                    try:
+                        # Tool stages consume all upstream and return a result
+                        result = await self.tool_stage(server_name, tool_name, args, upstream, for_each=for_each)
+                        # Convert result back to a stream for next stage
+                        # Ensure result ends with newline for proper shell command processing
+                        if result and not result.endswith('\n'):
+                            result += '\n'
 
-                    if item_type == "command":
-                        command = item.get("command", "")
-                        cmd_args = item.get("args", [])
-                        cmd_timeout = item.get("timeout")  # Optional timeout for this specific command
+                        upstream = iter([result])
+                    except Exception as e:
+                        raise RuntimeError(f"Stage {idx + 1} (tool {server_name}/{tool_name}) failed: {str(e)}")
 
-                        if not command:
-                            raise ValueError("Command stage missing 'command' field")
+                else:
+                    raise ValueError(f"Unknown pipeline item type: {item_type}")
 
-                        if not isinstance(cmd_args, list):
-                            raise ValueError(f"Command 'args' must be an array, got {type(cmd_args).__name__}")
+            # Collect final output
+            output = "".join(upstream)
+            return output
 
-                        try:
-                            # Validate command before execution
-                            self.validate_command(command)
-                            upstream = self.shell_stage(command, cmd_args, upstream, for_each=for_each, timeout=cmd_timeout)
-
-                            # Save to buffer if requested
-                            if save_to:
-                                output = "".join(upstream)
-                                (temp_path / f"{save_to}.buf").write_text(output)
-                                # Recreate upstream for next stage
-                                upstream = iter([output])
-                        except Exception as e:
-                            raise RuntimeError(f"Stage {idx + 1} (command) failed: {str(e)}")
-
-                    elif item_type == "tool":
-                        tool_name = item.get("name", "")
-                        server_name = item.get("server", "")
-                        args = item.get("args", {})
-
-                        if not tool_name:
-                            raise ValueError("Tool stage missing 'name' field")
-                        if not server_name:
-                            raise ValueError("Tool stage missing 'server' field")
-
-                        try:
-                            # Tool stages consume all upstream and return a result
-                            result = await self.tool_stage(server_name, tool_name, args, upstream, for_each=for_each)
-                            # Convert result back to a stream for next stage
-                            # Ensure result ends with newline for proper shell command processing
-                            if result and not result.endswith('\n'):
-                                result += '\n'
-
-                            # Save to buffer if requested
-                            if save_to:
-                                (temp_path / f"{save_to}.buf").write_text(result)
-
-                            upstream = iter([result])
-                        except Exception as e:
-                            raise RuntimeError(f"Stage {idx + 1} (tool {server_name}/{tool_name}) failed: {str(e)}")
-
-                    else:
-                        raise ValueError(f"Unknown pipeline item type: {item_type}")
-
-                # Collect final output
-                output = "".join(upstream)
-                return output
-
-            except Exception as e:
-                import traceback
-                error_details = f"Pipeline execution failed: {str(e)}\n\nTraceback:\n{traceback.format_exc()}"
-                return error_details
+        except Exception as e:
+            import traceback
+            error_details = f"Pipeline execution failed: {str(e)}\n\nTraceback:\n{traceback.format_exc()}"
+            return error_details

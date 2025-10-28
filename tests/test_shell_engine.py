@@ -323,41 +323,6 @@ class TestExecutePipeline:
         assert "hello world" in result
         assert "test" not in result
 
-    async def test_execute_pipeline_with_buffers(self):
-        """Test pipeline with save_to and read_buffers."""
-        mock_caller = AsyncMock(return_value=MockToolResult("saved data"))
-        engine = ShellEngine(tool_caller=mock_caller)
-
-        pipeline = [
-            {"type": "tool", "name": "fetch", "server": "http", "args": {}, "save_to": "buffer1"},
-            {"type": "command", "command": "echo", "args": ["other data"], "save_to": "buffer2"},
-            {"type": "read_buffers", "buffers": ["buffer1", "buffer2"]}
-        ]
-
-        result = await engine.execute_pipeline(pipeline)
-
-        # Result should be JSON with both buffers
-        parsed = json.loads(result)
-        assert "buffer1" in parsed
-        assert "buffer2" in parsed
-        assert "saved data" in parsed["buffer1"]
-        assert "other data" in parsed["buffer2"]
-
-    async def test_execute_pipeline_read_nonexistent_buffer(self):
-        """Test read_buffers with non-existent buffer raises error."""
-        mock_caller = AsyncMock()
-        engine = ShellEngine(tool_caller=mock_caller)
-
-        pipeline = [
-            {"type": "read_buffers", "buffers": ["nonexistent"]}
-        ]
-
-        result = await engine.execute_pipeline(pipeline)
-
-        # Should return error message
-        assert "Pipeline execution failed" in result
-        assert "not found" in result
-
     async def test_execute_pipeline_invalid_command(self):
         """Test pipeline with invalid command."""
         mock_caller = AsyncMock()
@@ -500,21 +465,6 @@ class TestErrorHandling:
 
         assert "Pipeline execution failed" in result
         assert "Stage 2" in result
-
-    async def test_read_buffers_missing_buffers_field(self):
-        """Test read_buffers without buffers field."""
-        mock_caller = AsyncMock()
-        engine = ShellEngine(tool_caller=mock_caller)
-
-        pipeline = [
-            {"type": "read_buffers"}  # Missing "buffers" field
-        ]
-
-        result = await engine.execute_pipeline(pipeline)
-
-        assert "Pipeline execution failed" in result
-        assert "missing 'buffers' field" in result
-
 
 @pytest.mark.asyncio
 class TestShellCommandTimeouts:

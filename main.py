@@ -55,13 +55,11 @@ async def execute_pipeline(pipeline: list[dict], initial_input: str = "") -> str
     A pipeline chains multiple stages where data flows from one to the next:
     - Tool stages: Call external tools (from list_all_tools)
     - Command stages: Transform data with jq, grep, sed, awk, etc.
-    - Read buffers: Retrieve saved intermediate results
 
     Pipeline Structure:
     Each stage is a dict with:
-    - type: "tool" | "command" | "read_buffers"
+    - type: "tool" | "command"
     - for_each (optional): Process items one-by-one instead of all at once
-    - save_to (optional): Save output to named buffer for later retrieval
 
     Tool Stage:
     {"type": "tool", "name": "tool_name", "server": "server_name", "args": {...}}
@@ -73,10 +71,6 @@ async def execute_pipeline(pipeline: list[dict], initial_input: str = "") -> str
     {"type": "command", "command": "jq", "args": ["-c", ".field"]}
     - Runs whitelisted shell commands (see list_available_shell_commands)
     - Command and args MUST be separate (security requirement)
-
-    Read Buffers Stage:
-    {"type": "read_buffers", "buffers": ["buffer1", "buffer2"]}
-    - Returns JSON object with saved buffer contents
 
     Example - Chain tools with data transformation:
     [
@@ -98,16 +92,6 @@ async def execute_pipeline(pipeline: list[dict], initial_input: str = "") -> str
     - IMPORTANT: Use jq to extract ONLY the fields the tool accepts
       Example: If get_profile only accepts {user_id: "..."}, use jq to create that exact structure
       This avoids "unexpected additional properties" errors from automatic merging
-
-    Example - Save intermediate results:
-    [
-        {"type": "tool", "name": "get_data", "server": "source", "save_to": "raw"},
-        {"type": "command", "command": "jq", "args": [".processed"]},
-        {"type": "read_buffers", "buffers": ["raw"]}
-    ]
-    ⚠️ Buffer Lifecycle: Buffers only exist within a single execute_pipeline() call.
-    You cannot save a buffer in one pipeline and read it in another - they are
-    automatically cleaned up when the pipeline completes.
 
     Best Practices:
     - Build complete workflows as single pipelines (don't split unnecessarily)
