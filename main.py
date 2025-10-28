@@ -158,18 +158,8 @@ async def execute_pipeline(pipeline: list[dict], initial_input: str = "") -> str
     return await engine.execute_pipeline(pipeline, initial_input)
 
 
-@mcp.tool()
-async def list_all_tools() -> str:
-    """
-    List all tools available from all MCP servers running through ToolHive.
-
-    Use this to discover available tools, then use execute_pipeline to coordinate multiple tool calls
-    for data processing, transformation, and mining tasks where accuracy is critical.
-
-    ⚠️ IMPORTANT: After discovering tools, build complete workflows as SINGLE pipeline calls.
-    Don't make multiple execute_pipeline calls where you manually pass data between them.
-    Instead, chain all operations together and use jq/grep/sed within the pipeline to transform data.
-    """
+async def _list_all_tools_impl() -> str:
+    """Implementation of list_all_tools (extracted for testing)"""
     tools_list = await mcp_client.list_tools()
 
     if not tools_list:
@@ -186,12 +176,73 @@ async def list_all_tools() -> str:
         result.append(f"  Status: {status}")
 
         if tools:
-            result.append(f"  Tools: {', '.join(tools)}")
+            for tool in tools:
+                if isinstance(tool, dict):
+                    tool_name = tool.get("name", "unknown")
+                    description = tool.get("description", "")
+                    # Truncate description: replace newlines with spaces, limit to 200 chars
+                    if description:
+                        description = description.replace("\n", " ").replace("\r", " ")
+                        if len(description) > 200:
+                            description = description[:200] + "..."
+                        result.append(f"  - {tool_name}: {description}")
+                    else:
+                        result.append(f"  - {tool_name}")
+                else:
+                    # Backwards compatibility: if tools is just a list of names
+                    result.append(f"  - {tool}")
 
         if error:
             result.append(f"  Error: {error}")
 
     return "\n".join(result)
+
+
+@mcp.tool()
+async def list_all_tools() -> str:
+    """
+    List all tools available from all MCP servers running through ToolHive.
+
+    Shows tool names with brief descriptions. Use get_tool_details() to see full descriptions
+    and parameter schemas for a specific tool.
+
+    Use execute_pipeline to coordinate multiple tool calls for data processing workflows.
+    """
+    return await _list_all_tools_impl()
+
+
+async def _get_tool_details_impl(server: str, tool_name: str) -> str:
+    """Implementation of get_tool_details (extracted for testing)"""
+    import json
+
+    details = await mcp_client.get_tool_details_from_server(server, tool_name)
+
+    if "error" in details:
+        return f"Error: {details['error']}"
+
+    result = []
+    result.append(f"Tool: {details.get('name', 'unknown')}")
+    result.append(f"\nDescription:\n{details.get('description', 'No description available')}")
+    result.append(f"\nInput Schema:")
+    result.append(json.dumps(details.get('inputSchema', {}), indent=2))
+
+    return "\n".join(result)
+
+
+@mcp.tool()
+async def get_tool_details(server: str, tool_name: str) -> str:
+    """
+    Get detailed information about a specific tool including its full description and parameter schema.
+
+    Args:
+        server: The MCP server/workload name (e.g., "fetch", "filesystem")
+        tool_name: The name of the tool to get details for
+
+    Returns detailed information including:
+    - Full description
+    - Input schema (JSON Schema describing required and optional parameters)
+    """
+    return await _get_tool_details_impl(server, tool_name)
 
 
 if __name__ == "__main__":

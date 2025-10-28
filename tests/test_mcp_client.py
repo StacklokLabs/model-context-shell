@@ -55,8 +55,10 @@ class TestListToolsFromServer:
 
         mock_tool = MagicMock()
         mock_tool.name = "test_tool_1"
+        mock_tool.description = "Description for tool 1"
         mock_tool2 = MagicMock()
         mock_tool2.name = "test_tool_2"
+        mock_tool2.description = "Description for tool 2"
 
         mock_tools_response = MagicMock()
         mock_tools_response.tools = [mock_tool, mock_tool2]
@@ -77,7 +79,9 @@ class TestListToolsFromServer:
 
         assert result["workload"] == "test-workload"
         assert result["status"] == "success"
-        assert result["tools"] == ["test_tool_1", "test_tool_2"]
+        assert len(result["tools"]) == 2
+        assert result["tools"][0] == {"name": "test_tool_1", "description": "Description for tool 1"}
+        assert result["tools"][1] == {"name": "test_tool_2", "description": "Description for tool 2"}
         assert result["error"] is None
 
     async def test_sse_proxy_connection(self, mocker):
@@ -96,6 +100,7 @@ class TestListToolsFromServer:
 
         mock_tool = MagicMock()
         mock_tool.name = "sse_tool"
+        mock_tool.description = "SSE tool description"
 
         mock_tools_response = MagicMock()
         mock_tools_response.tools = [mock_tool]
@@ -116,7 +121,8 @@ class TestListToolsFromServer:
 
         assert result["workload"] == "test-workload"
         assert result["status"] == "success"
-        assert result["tools"] == ["sse_tool"]
+        assert len(result["tools"]) == 1
+        assert result["tools"][0] == {"name": "sse_tool", "description": "SSE tool description"}
         assert result["error"] is None
 
     async def test_unsupported_transport(self):
@@ -267,3 +273,204 @@ class TestListTools:
         await mcp_client.list_tools(host="localhost", port=9000)
 
         mock_get_workloads.assert_called_once_with("localhost", 9000)
+
+    async def test_list_tools_handles_missing_description(self, mocker):
+        """Test that tools with None description are handled correctly"""
+        workload = {
+            "name": "test-workload",
+            "status": "running",
+            "transport_type": "streamable-http",
+            "url": "http://localhost:8080/mcp"
+        }
+
+        # Mock the MCP client
+        mock_session = MagicMock()
+        mock_session.initialize = AsyncMock()
+
+        mock_tool = MagicMock()
+        mock_tool.name = "test_tool"
+        mock_tool.description = None
+
+        mock_tools_response = MagicMock()
+        mock_tools_response.tools = [mock_tool]
+        mock_session.list_tools = AsyncMock(return_value=mock_tools_response)
+
+        mock_client_session = MagicMock()
+        mock_client_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_client_session.__aexit__ = AsyncMock()
+
+        mock_sse = MagicMock()
+        mock_sse.__aenter__ = AsyncMock(return_value=("read", "write", lambda: None))
+        mock_sse.__aexit__ = AsyncMock()
+
+        mocker.patch("mcp_client.streamablehttp_client", return_value=mock_sse)
+        mocker.patch("mcp_client.ClientSession", return_value=mock_client_session)
+
+        result = await mcp_client.list_tools_from_server(workload)
+
+        assert result["tools"][0] == {"name": "test_tool", "description": ""}
+
+
+@pytest.mark.asyncio
+class TestGetToolDetails:
+    async def test_get_tool_details_success(self, mocker):
+        """Test successful retrieval of tool details"""
+        workload = {
+            "name": "test-server",
+            "status": "running",
+            "transport_type": "streamable-http",
+            "url": "http://localhost:8080/mcp"
+        }
+
+        mocker.patch("mcp_client.get_workloads", return_value=[workload])
+
+        # Mock discover_toolhive to return host and port
+        mocker.patch("toolhive_client.discover_toolhive", return_value=("localhost", 8080))
+
+        # Mock the MCP client
+        mock_session = MagicMock()
+        mock_session.initialize = AsyncMock()
+
+        mock_tool = MagicMock()
+        mock_tool.name = "test_tool"
+        mock_tool.description = "A test tool for testing"
+        mock_tool.inputSchema = {
+            "type": "object",
+            "properties": {
+                "param1": {"type": "string"},
+                "param2": {"type": "number"}
+            },
+            "required": ["param1"]
+        }
+
+        mock_tools_response = MagicMock()
+        mock_tools_response.tools = [mock_tool]
+        mock_session.list_tools = AsyncMock(return_value=mock_tools_response)
+
+        mock_client_session = MagicMock()
+        mock_client_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_client_session.__aexit__ = AsyncMock()
+
+        mock_sse = MagicMock()
+        mock_sse.__aenter__ = AsyncMock(return_value=("read", "write", lambda: None))
+        mock_sse.__aexit__ = AsyncMock()
+
+        mocker.patch("mcp_client.streamablehttp_client", return_value=mock_sse)
+        mocker.patch("mcp_client.ClientSession", return_value=mock_client_session)
+
+        result = await mcp_client.get_tool_details_from_server("test-server", "test_tool")
+
+        assert result["name"] == "test_tool"
+        assert result["description"] == "A test tool for testing"
+        assert result["inputSchema"]["type"] == "object"
+        assert "param1" in result["inputSchema"]["properties"]
+
+    async def test_get_tool_details_workload_not_found(self, mocker):
+        """Test get_tool_details when workload doesn't exist"""
+        mocker.patch("mcp_client.get_workloads", return_value=[])
+        mocker.patch("toolhive_client.discover_toolhive", return_value=("localhost", 8080))
+
+        result = await mcp_client.get_tool_details_from_server("nonexistent", "test_tool")
+
+        assert "error" in result
+        assert "not found" in result["error"]
+
+    async def test_get_tool_details_tool_not_found(self, mocker):
+        """Test get_tool_details when tool doesn't exist in workload"""
+        workload = {
+            "name": "test-server",
+            "status": "running",
+            "transport_type": "streamable-http",
+            "url": "http://localhost:8080/mcp"
+        }
+
+        mocker.patch("mcp_client.get_workloads", return_value=[workload])
+        mocker.patch("toolhive_client.discover_toolhive", return_value=("localhost", 8080))
+
+        # Mock the MCP client with a different tool
+        mock_session = MagicMock()
+        mock_session.initialize = AsyncMock()
+
+        mock_tool = MagicMock()
+        mock_tool.name = "other_tool"
+        mock_tool.description = "Another tool"
+        mock_tool.inputSchema = {}
+
+        mock_tools_response = MagicMock()
+        mock_tools_response.tools = [mock_tool]
+        mock_session.list_tools = AsyncMock(return_value=mock_tools_response)
+
+        mock_client_session = MagicMock()
+        mock_client_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_client_session.__aexit__ = AsyncMock()
+
+        mock_sse = MagicMock()
+        mock_sse.__aenter__ = AsyncMock(return_value=("read", "write", lambda: None))
+        mock_sse.__aexit__ = AsyncMock()
+
+        mocker.patch("mcp_client.streamablehttp_client", return_value=mock_sse)
+        mocker.patch("mcp_client.ClientSession", return_value=mock_client_session)
+
+        result = await mcp_client.get_tool_details_from_server("test-server", "nonexistent_tool")
+
+        assert "error" in result
+        assert "not found" in result["error"]
+
+    async def test_get_tool_details_sse_transport(self, mocker):
+        """Test get_tool_details with SSE transport"""
+        workload = {
+            "name": "test-server",
+            "status": "running",
+            "proxy_mode": "sse",
+            "url": "http://localhost:8080/sse"
+        }
+
+        mocker.patch("mcp_client.get_workloads", return_value=[workload])
+        mocker.patch("toolhive_client.discover_toolhive", return_value=("localhost", 8080))
+
+        # Mock the MCP client
+        mock_session = MagicMock()
+        mock_session.initialize = AsyncMock()
+
+        mock_tool = MagicMock()
+        mock_tool.name = "sse_tool"
+        mock_tool.description = "SSE tool"
+        mock_tool.inputSchema = {"type": "object"}
+
+        mock_tools_response = MagicMock()
+        mock_tools_response.tools = [mock_tool]
+        mock_session.list_tools = AsyncMock(return_value=mock_tools_response)
+
+        mock_client_session = MagicMock()
+        mock_client_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_client_session.__aexit__ = AsyncMock()
+
+        mock_sse = MagicMock()
+        mock_sse.__aenter__ = AsyncMock(return_value=("read", "write"))
+        mock_sse.__aexit__ = AsyncMock()
+
+        mocker.patch("mcp_client.sse_client", return_value=mock_sse)
+        mocker.patch("mcp_client.ClientSession", return_value=mock_client_session)
+
+        result = await mcp_client.get_tool_details_from_server("test-server", "sse_tool")
+
+        assert result["name"] == "sse_tool"
+        assert result["description"] == "SSE tool"
+
+    async def test_get_tool_details_connection_error(self, mocker):
+        """Test get_tool_details handles connection errors"""
+        workload = {
+            "name": "test-server",
+            "status": "running",
+            "transport_type": "streamable-http",
+            "url": "http://localhost:8080/mcp"
+        }
+
+        mocker.patch("mcp_client.get_workloads", return_value=[workload])
+        mocker.patch("toolhive_client.discover_toolhive", return_value=("localhost", 8080))
+        mocker.patch("mcp_client.streamablehttp_client", side_effect=Exception("Connection failed"))
+
+        result = await mcp_client.get_tool_details_from_server("test-server", "test_tool")
+
+        assert "error" in result
+        assert "Connection failed" in result["error"]
