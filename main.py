@@ -45,7 +45,7 @@ def list_available_shell_commands() -> list[str]:
 
 
 @mcp.tool()
-async def execute_pipeline(pipeline: list[dict], initial_input: str = "") -> str:
+async def execute_pipeline(pipeline: list[dict]) -> str:
     """
     Execute a pipeline of tool calls and shell commands to coordinate multiple operations.
 
@@ -100,7 +100,7 @@ async def execute_pipeline(pipeline: list[dict], initial_input: str = "") -> str
     - Use jq to filter data to match the tool's expected fields (prevents schema errors)
     - Use for_each to process collections item-by-item (results collected into array)
     """
-    return await engine.execute_pipeline(pipeline, initial_input)
+    return await engine.execute_pipeline(pipeline)
 
 
 async def _list_all_tools_impl() -> str:

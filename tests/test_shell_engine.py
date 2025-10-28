@@ -32,7 +32,7 @@ class TestShellEngineInitialization:
     async def test_initialization_with_custom_commands(self):
         """Test initialization with custom allowed commands."""
         mock_caller = AsyncMock()
-        custom_commands = ["echo", "cat"]
+        custom_commands = ["jq", "grep"]
 
         engine = ShellEngine(tool_caller=mock_caller, allowed_commands=custom_commands)
 
@@ -64,7 +64,7 @@ class TestCommandValidation:
         # Should not raise
         engine.validate_command("jq")
         engine.validate_command("grep")
-        engine.validate_command("echo")
+        engine.validate_command("date")
 
     async def test_validate_disallowed_command(self):
         """Test that disallowed commands fail validation."""
@@ -90,16 +90,16 @@ class TestCommandValidation:
 class TestShellStage:
     """Test shell_stage execution."""
 
-    async def test_shell_stage_simple_echo(self):
-        """Test simple echo command."""
+    async def test_shell_stage_simple_date(self):
+        """Test simple date command."""
         mock_caller = AsyncMock()
         engine = ShellEngine(tool_caller=mock_caller)
 
         upstream = iter([""])
-        result = list(engine.shell_stage("echo", ["hello world"], upstream))
+        result = list(engine.shell_stage("date", [], upstream))
 
         output = "".join(result).strip()
-        assert output == "hello world"
+        assert len(output) > 0  # Date command produces output
 
     async def test_shell_stage_with_input(self):
         """Test shell command with stdin input."""
@@ -253,12 +253,13 @@ class TestExecutePipeline:
     """Test execute_pipeline with various pipeline configurations."""
 
     async def test_execute_pipeline_single_command(self):
-        """Test pipeline with single shell command."""
-        mock_caller = AsyncMock()
+        """Test pipeline with tool followed by shell command."""
+        mock_caller = AsyncMock(return_value=MockToolResult("test output"))
         engine = ShellEngine(tool_caller=mock_caller)
 
         pipeline = [
-            {"type": "command", "command": "echo", "args": ["test output"]}
+            {"type": "tool", "name": "generate", "server": "test", "args": {}},
+            {"type": "command", "command": "grep", "args": ["test"]}
         ]
 
         result = await engine.execute_pipeline(pipeline)
@@ -266,12 +267,12 @@ class TestExecutePipeline:
         assert "test output" in result
 
     async def test_execute_pipeline_multiple_commands(self):
-        """Test pipeline with multiple shell commands."""
-        mock_caller = AsyncMock()
+        """Test pipeline with tool and multiple shell commands."""
+        mock_caller = AsyncMock(return_value=MockToolResult("apple\nbanana\ncherry"))
         engine = ShellEngine(tool_caller=mock_caller)
 
         pipeline = [
-            {"type": "command", "command": "echo", "args": ["apple\nbanana\ncherry"]},
+            {"type": "tool", "name": "get_data", "server": "test", "args": {}},
             {"type": "command", "command": "grep", "args": ["a"]}
         ]
 
@@ -308,20 +309,6 @@ class TestExecutePipeline:
         result = await engine.execute_pipeline(pipeline)
 
         assert "test" in result
-
-    async def test_execute_pipeline_with_initial_input(self):
-        """Test pipeline with initial_input parameter."""
-        mock_caller = AsyncMock()
-        engine = ShellEngine(tool_caller=mock_caller)
-
-        pipeline = [
-            {"type": "command", "command": "grep", "args": ["world"]}
-        ]
-
-        result = await engine.execute_pipeline(pipeline, initial_input="hello world\ntest")
-
-        assert "hello world" in result
-        assert "test" not in result
 
     async def test_execute_pipeline_invalid_command(self):
         """Test pipeline with invalid command."""
@@ -372,7 +359,7 @@ class TestExecutePipeline:
         engine = ShellEngine(tool_caller=mock_caller)
 
         pipeline = [
-            {"type": "command", "command": "echo", "args": "not-a-list"}
+            {"type": "command", "command": "grep", "args": "not-a-list"}
         ]
 
         result = await engine.execute_pipeline(pipeline)
@@ -395,15 +382,15 @@ class TestExecutePipeline:
         assert "Unknown pipeline item type" in result
 
     async def test_execute_pipeline_empty_pipeline(self):
-        """Test pipeline with no stages."""
+        """Test pipeline with no stages returns empty string."""
         mock_caller = AsyncMock()
         engine = ShellEngine(tool_caller=mock_caller)
 
         pipeline = []
 
-        result = await engine.execute_pipeline(pipeline, initial_input="test input")
+        result = await engine.execute_pipeline(pipeline)
 
-        assert result == "test input"
+        assert result == ""
 
     async def test_execute_pipeline_for_each_tool(self):
         """Test pipeline with for_each tool stage."""
@@ -412,19 +399,24 @@ class TestExecutePipeline:
         async def mock_caller(server, tool, args):
             nonlocal call_count
             call_count += 1
-            return MockToolResult(f"result {call_count}")
+            if call_count == 1:
+                # First call: list tool returns JSON array
+                return MockToolResult('{"url":"u1"}\n{"url":"u2"}\n{"url":"u3"}')
+            else:
+                # Subsequent calls: fetch tool processes each URL
+                return MockToolResult(f"result {call_count - 1}")
 
         engine = ShellEngine(tool_caller=mock_caller)
 
         pipeline = [
-            {"type": "command", "command": "echo", "args": ['{"url":"u1"}\n{"url":"u2"}\n{"url":"u3"}']},
+            {"type": "tool", "name": "list_urls", "server": "api", "args": {}},
             {"type": "tool", "name": "fetch", "server": "http", "for_each": True}
         ]
 
         result = await engine.execute_pipeline(pipeline)
 
-        # Should have called tool 3 times
-        assert call_count == 3
+        # Should have called tool 4 times (1 list + 3 fetches)
+        assert call_count == 4
         assert "result 1" in result
         assert "result 2" in result
         assert "result 3" in result
@@ -452,13 +444,13 @@ class TestErrorHandling:
 
     async def test_stage_error_includes_stage_number(self):
         """Test that errors include the stage number."""
-        mock_caller = AsyncMock()
+        mock_caller = AsyncMock(return_value=MockToolResult("ok"))
         engine = ShellEngine(tool_caller=mock_caller)
 
         pipeline = [
-            {"type": "command", "command": "echo", "args": ["ok"]},
+            {"type": "tool", "name": "get_data", "server": "test", "args": {}},
             {"type": "command", "command": "rm", "args": ["-rf", "/"]},  # Stage 2 - forbidden
-            {"type": "command", "command": "echo", "args": ["never reached"]}
+            {"type": "command", "command": "grep", "args": ["never reached"]}
         ]
 
         result = await engine.execute_pipeline(pipeline)
@@ -478,10 +470,10 @@ class TestShellCommandTimeouts:
 
         # Fast command should complete within timeout
         upstream = iter(["test"])
-        result = list(engine.shell_stage("echo", ["hello"], upstream, timeout=0.5))
+        result = list(engine.shell_stage("date", [], upstream, timeout=0.5))
 
         output = "".join(result).strip()
-        assert "hello" in output
+        assert len(output) > 0  # Date produces output
 
     @pytest.mark.timeout(1)
     async def test_shell_stage_timeout_slow_command(self):
@@ -542,12 +534,12 @@ class TestShellCommandTimeouts:
     @pytest.mark.timeout(2)
     async def test_execute_pipeline_for_each_with_timeout(self):
         """Test that for_each mode respects timeouts."""
-        mock_caller = AsyncMock()
+        mock_caller = AsyncMock(return_value=MockToolResult("line1\nline2"))
         engine = ShellEngine(tool_caller=mock_caller)
 
         # Each line would cause a slow command, but should timeout
         pipeline = [
-            {"type": "command", "command": "echo", "args": ["line1\nline2"]},
+            {"type": "tool", "name": "get_lines", "server": "test", "args": {}},
             {"type": "command", "command": "sleep", "args": ["10"], "for_each": True, "timeout": 0.2}
         ]
 
@@ -566,10 +558,10 @@ class TestShellCommandTimeouts:
         upstream = iter(["test"])
 
         with pytest.raises(ValueError, match="timeout.*positive|invalid"):
-            list(engine.shell_stage("echo", ["test"], upstream, timeout=0))
+            list(engine.shell_stage("date", [], upstream, timeout=0))
 
         with pytest.raises(ValueError, match="timeout.*positive|invalid"):
-            list(engine.shell_stage("echo", ["test"], upstream, timeout=-1))
+            list(engine.shell_stage("date", [], upstream, timeout=-1))
 
     async def test_engine_initialization_with_default_timeout(self):
         """Test that ShellEngine can be initialized with a custom default timeout."""
@@ -604,8 +596,9 @@ class TestStreamingForEach:
         upstream = tracked_generator()
 
         # Process with for_each - should start yielding before generator is exhausted
+        # Use 'head' with no args which just passes through input
         results = []
-        for output in engine.shell_stage("echo", [], upstream, for_each=True):
+        for output in engine.shell_stage("head", [], upstream, for_each=True):
             results.append(output)
             # If we're truly streaming, the generator should NOT be exhausted yet
             # when we get the first result
@@ -672,9 +665,9 @@ class TestStreamingForEach:
 
         upstream = large_generator()
 
-        # Process with for_each
+        # Process with for_each - use 'head' which passes through input
         result_count = 0
-        for output in engine.shell_stage("echo", [], upstream, for_each=True):
+        for output in engine.shell_stage("head", [], upstream, for_each=True):
             result_count += 1
             # If we're streaming, we should be able to break early
             # without consuming the entire generator

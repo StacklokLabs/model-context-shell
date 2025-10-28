@@ -13,6 +13,8 @@ import json
 
 
 # Whitelist of allowed shell commands
+# Note: Commands that only generate hardcoded text (echo, printf) are excluded
+# to enforce tool-first architecture where all data comes from real sources
 ALLOWED_COMMANDS = [
     "grep",
     "jq",
@@ -25,8 +27,6 @@ ALLOWED_COMMANDS = [
     "head",
     "tail",
     "tr",
-    "echo",
-    "printf",
     "date",
     "bc",
     "paste",
@@ -337,20 +337,19 @@ class ShellEngine:
             # Fallback to string representation
             return str(result)
 
-    async def execute_pipeline(self, pipeline: list[dict], initial_input: str = "") -> str:
+    async def execute_pipeline(self, pipeline: list[dict]) -> str:
         """
         Execute a pipeline of tool calls and shell commands.
 
         Args:
             pipeline: List of pipeline stage dictionaries
-            initial_input: Initial data to feed into the pipeline
 
         Returns:
             Final output of the pipeline
         """
         try:
-            # Start with initial input as a generator
-            upstream: Iterable[str] = iter([initial_input]) if initial_input else iter([])
+            # Start with empty upstream - first stage must be a tool call
+            upstream: Iterable[str] = iter([])
 
             # Process each stage in the pipeline
             for idx, item in enumerate(pipeline):
