@@ -7,12 +7,17 @@ RUN groupadd --gid 1000 app && \
     useradd --uid 1000 --gid app --shell /bin/bash --create-home app
 
 # Install system dependencies needed for shell commands
+# jq: JSON processing
+# grep, sed, gawk: Text processing
+# coreutils: sort, uniq, cut, wc, head, tail, tr, echo, printf, date, paste, shuf, join, sleep
+# bc: Calculator for arithmetic operations
 RUN apt-get update && apt-get install -y \
     jq \
     grep \
     sed \
     gawk \
     coreutils \
+    bc \
     && rm -rf /var/lib/apt/lists/*
 
 # Install uv for faster dependency management
@@ -44,12 +49,17 @@ RUN groupadd --gid 1000 app && \
     useradd --uid 1000 --gid app --shell /bin/bash --create-home app
 
 # Install only runtime dependencies (shell commands)
+# jq: JSON processing
+# grep, sed, gawk: Text processing
+# coreutils: sort, uniq, cut, wc, head, tail, tr, echo, printf, date, paste, shuf, join, sleep
+# bc: Calculator for arithmetic operations
 RUN apt-get update && apt-get install -y \
     jq \
     grep \
     sed \
     gawk \
     coreutils \
+    bc \
     && rm -rf /var/lib/apt/lists/*
 
 # Create app directory
