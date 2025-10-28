@@ -50,6 +50,15 @@ async def list_tools_from_server(workload: Dict[str, Any]) -> Dict[str, Any]:
     """List tools from a single MCP server workload"""
     name = workload.get("name", "unknown")
 
+    # Tools that indicate this is mcp-shell itself (orchestrator, not a tool provider)
+    # If a workload exposes these exact tools, it's likely us - filter it out
+    ORCHESTRATOR_TOOLS = {
+        "list_available_shell_commands",
+        "execute_pipeline",
+        "list_all_tools",
+        "get_tool_details"
+    }
+
     try:
         # Extract workload information
         transport_type = workload.get("transport_type", "")
@@ -82,11 +91,29 @@ async def list_tools_from_server(workload: Dict[str, Any]) -> Dict[str, Any]:
                 async with ClientSession(read, write) as session:
                     await session.initialize()
                     tools_response = await session.list_tools()
-                    tool_names = [tool.name for tool in tools_response.tools]
+                    tools_info = [
+                        {
+                            "name": tool.name,
+                            "description": tool.description or ""
+                        }
+                        for tool in tools_response.tools
+                    ]
+
+                    # Check if this workload is mcp-shell itself
+                    tool_names = {tool["name"] for tool in tools_info}
+                    if ORCHESTRATOR_TOOLS.issubset(tool_names):
+                        # This is us - skip to avoid self-reference
+                        return {
+                            "workload": name,
+                            "status": "skipped",
+                            "tools": [],
+                            "error": "Skipped: orchestrator workload (self)"
+                        }
+
                     return {
                         "workload": name,
                         "status": "success",
-                        "tools": tool_names,
+                        "tools": tools_info,
                         "error": None
                     }
         elif proxy_mode == "streamable-http" or transport_type == "streamable-http":
@@ -95,11 +122,29 @@ async def list_tools_from_server(workload: Dict[str, Any]) -> Dict[str, Any]:
                 async with ClientSession(read, write) as session:
                     await session.initialize()
                     tools_response = await session.list_tools()
-                    tool_names = [tool.name for tool in tools_response.tools]
+                    tools_info = [
+                        {
+                            "name": tool.name,
+                            "description": tool.description or ""
+                        }
+                        for tool in tools_response.tools
+                    ]
+
+                    # Check if this workload is mcp-shell itself
+                    tool_names = {tool["name"] for tool in tools_info}
+                    if ORCHESTRATOR_TOOLS.issubset(tool_names):
+                        # This is us - skip to avoid self-reference
+                        return {
+                            "workload": name,
+                            "status": "skipped",
+                            "tools": [],
+                            "error": "Skipped: orchestrator workload (self)"
+                        }
+
                     return {
                         "workload": name,
                         "status": "success",
-                        "tools": tool_names,
+                        "tools": tools_info,
                         "error": None
                     }
         else:
@@ -118,6 +163,76 @@ async def list_tools_from_server(workload: Dict[str, Any]) -> Dict[str, Any]:
             "status": "error",
             "tools": [],
             "error": error_msg
+        }
+
+
+async def get_tool_details_from_server(
+    workload_name: str,
+    tool_name: str,
+    host: str = None,
+    port: int = None
+) -> Dict[str, Any]:
+    """Get detailed information about a specific tool from a workload"""
+    # Discover ToolHive if not already done
+    if host is None or port is None:
+        from toolhive_client import discover_toolhive
+        host, port = discover_toolhive(host, port)
+
+    # Get workload details
+    workloads = await get_workloads(host, port)
+    workload = next((w for w in workloads if w.get("name") == workload_name), None)
+
+    if not workload:
+        return {
+            "error": f"Workload '{workload_name}' not found"
+        }
+
+    try:
+        transport_type = workload.get("transport_type", "")
+        proxy_mode = workload.get("proxy_mode", "")
+        url = workload.get("url", "")
+
+        if not url:
+            return {"error": "No URL provided for workload"}
+
+        # Connect and list tools to find the requested tool
+        if proxy_mode == "sse":
+            async with sse_client(url) as (read, write):
+                async with ClientSession(read, write) as session:
+                    await session.initialize()
+                    tools_response = await session.list_tools()
+                    tool = next((t for t in tools_response.tools if t.name == tool_name), None)
+
+                    if not tool:
+                        return {"error": f"Tool '{tool_name}' not found in workload '{workload_name}'"}
+
+                    return {
+                        "name": tool.name,
+                        "description": tool.description or "",
+                        "inputSchema": tool.inputSchema
+                    }
+        elif proxy_mode == "streamable-http" or transport_type == "streamable-http":
+            async with streamablehttp_client(url) as (read, write, get_session_id):
+                async with ClientSession(read, write) as session:
+                    await session.initialize()
+                    tools_response = await session.list_tools()
+                    tool = next((t for t in tools_response.tools if t.name == tool_name), None)
+
+                    if not tool:
+                        return {"error": f"Tool '{tool_name}' not found in workload '{workload_name}'"}
+
+                    return {
+                        "name": tool.name,
+                        "description": tool.description or "",
+                        "inputSchema": tool.inputSchema
+                    }
+        else:
+            return {"error": f"Transport/proxy mode '{proxy_mode or transport_type}' not supported"}
+
+    except Exception as e:
+        import traceback
+        return {
+            "error": f"Failed to get tool details: {str(e)}\n{traceback.format_exc()}"
         }
 
 
