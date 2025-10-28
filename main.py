@@ -124,6 +124,10 @@ async def _list_all_tools_impl() -> str:
         tools = server.get("tools", [])
         error = server.get("error")
 
+        # Skip self-reference workloads (orchestrator)
+        if status == "skipped" and error and "orchestrator" in error:
+            continue
+
         result.append(f"\n**{workload}**")
         result.append(f"  Status: {status}")
 

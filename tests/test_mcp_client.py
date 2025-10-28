@@ -474,3 +474,157 @@ class TestGetToolDetails:
 
         assert "error" in result
         assert "Connection failed" in result["error"]
+
+
+@pytest.mark.asyncio
+class TestSelfFiltering:
+    """Test that mcp-shell filters itself out from tool listings"""
+
+    async def test_filters_orchestrator_workload_sse(self, mocker):
+        """Test that workloads with all orchestrator tools are filtered (SSE)"""
+        # Mock workload that looks like mcp-shell itself
+        mock_workload = {
+            "name": "model-context-shell",
+            "status": "running",
+            "url": "http://localhost:9000/sse",
+            "proxy_mode": "sse",
+            "transport_type": "sse"
+        }
+
+        # Mock the SSE client session to return our orchestrator tools
+        mock_session = AsyncMock()
+        mock_tools_response = MagicMock()
+
+        # Create proper mock tools with name and description attributes
+        tool1 = MagicMock()
+        tool1.name = "list_available_shell_commands"
+        tool1.description = ""
+
+        tool2 = MagicMock()
+        tool2.name = "execute_pipeline"
+        tool2.description = ""
+
+        tool3 = MagicMock()
+        tool3.name = "list_all_tools"
+        tool3.description = ""
+
+        tool4 = MagicMock()
+        tool4.name = "get_tool_details"
+        tool4.description = ""
+
+        mock_tools_response.tools = [tool1, tool2, tool3, tool4]
+        mock_session.list_tools.return_value = mock_tools_response
+        mock_session.initialize = AsyncMock()
+
+        mock_client_session = MagicMock()
+        mock_client_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_client_session.__aexit__ = AsyncMock()
+
+        mock_sse = MagicMock()
+        mock_sse.__aenter__ = AsyncMock(return_value=(None, None))
+        mock_sse.__aexit__ = AsyncMock()
+
+        mocker.patch("mcp_client.sse_client", return_value=mock_sse)
+        mocker.patch("mcp_client.ClientSession", return_value=mock_client_session)
+
+        result = await mcp_client.list_tools_from_server(mock_workload)
+
+        assert result["status"] == "skipped"
+        assert result["tools"] == []
+        assert "orchestrator" in result["error"]
+
+    async def test_filters_orchestrator_workload_http(self, mocker):
+        """Test that workloads with all orchestrator tools are filtered (HTTP)"""
+        mock_workload = {
+            "name": "shell-orchestrator",
+            "status": "running",
+            "url": "http://localhost:9000/mcp",
+            "proxy_mode": "streamable-http",
+            "transport_type": "streamable-http"
+        }
+
+        mock_session = AsyncMock()
+        mock_tools_response = MagicMock()
+
+        # Create proper mock tools with name and description attributes
+        tool1 = MagicMock()
+        tool1.name = "list_available_shell_commands"
+        tool1.description = ""
+
+        tool2 = MagicMock()
+        tool2.name = "execute_pipeline"
+        tool2.description = ""
+
+        tool3 = MagicMock()
+        tool3.name = "list_all_tools"
+        tool3.description = ""
+
+        tool4 = MagicMock()
+        tool4.name = "get_tool_details"
+        tool4.description = ""
+
+        mock_tools_response.tools = [tool1, tool2, tool3, tool4]
+        mock_session.list_tools.return_value = mock_tools_response
+        mock_session.initialize = AsyncMock()
+
+        mock_client_session = MagicMock()
+        mock_client_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_client_session.__aexit__ = AsyncMock()
+
+        mock_http = MagicMock()
+        mock_http.__aenter__ = AsyncMock(return_value=(None, None, None))
+        mock_http.__aexit__ = AsyncMock()
+
+        mocker.patch("mcp_client.streamablehttp_client", return_value=mock_http)
+        mocker.patch("mcp_client.ClientSession", return_value=mock_client_session)
+
+        result = await mcp_client.list_tools_from_server(mock_workload)
+
+        assert result["status"] == "skipped"
+        assert result["tools"] == []
+        assert "orchestrator" in result["error"]
+
+    async def test_does_not_filter_partial_match(self, mocker):
+        """Test that workloads with only some orchestrator tools are not filtered"""
+        mock_workload = {
+            "name": "partial-server",
+            "status": "running",
+            "url": "http://localhost:9000/sse",
+            "proxy_mode": "sse",
+            "transport_type": "sse"
+        }
+
+        # Only has 2 of the 4 orchestrator tools
+        mock_session = AsyncMock()
+        mock_tools_response = MagicMock()
+
+        # Create proper mock tools
+        tool1 = MagicMock()
+        tool1.name = "list_all_tools"
+        tool1.description = "Lists things"
+
+        tool2 = MagicMock()
+        tool2.name = "some_other_tool"
+        tool2.description = "Does something"
+
+        mock_tools_response.tools = [tool1, tool2]
+        mock_session.list_tools.return_value = mock_tools_response
+        mock_session.initialize = AsyncMock()
+
+        mock_client_session = MagicMock()
+        mock_client_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_client_session.__aexit__ = AsyncMock()
+
+        mock_sse = MagicMock()
+        mock_sse.__aenter__ = AsyncMock(return_value=(None, None))
+        mock_sse.__aexit__ = AsyncMock()
+
+        mocker.patch("mcp_client.sse_client", return_value=mock_sse)
+        mocker.patch("mcp_client.ClientSession", return_value=mock_client_session)
+
+        result = await mcp_client.list_tools_from_server(mock_workload)
+
+        # Should NOT be filtered
+        assert result["status"] == "success"
+        assert len(result["tools"]) == 2
+        assert result["tools"][0]["name"] == "list_all_tools"

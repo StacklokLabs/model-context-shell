@@ -141,6 +141,41 @@ class TestListAllTools:
         assert "**test-server**" in result
         assert "Connection timeout" in result
 
+    async def test_list_all_tools_hides_orchestrator(self, mocker):
+        """Test that orchestrator workloads are hidden from the output"""
+        mock_tools = [
+            {
+                "workload": "fetch",
+                "status": "success",
+                "tools": [{"name": "fetch", "description": "Fetches URLs"}],
+                "error": None
+            },
+            {
+                "workload": "model-context-shell",
+                "status": "skipped",
+                "tools": [],
+                "error": "Skipped: orchestrator workload (self)"
+            },
+            {
+                "workload": "database",
+                "status": "success",
+                "tools": [{"name": "query", "description": "Queries database"}],
+                "error": None
+            }
+        ]
+
+        mocker.patch("mcp_client.list_tools", return_value=mock_tools)
+
+        result = await _list_all_tools_impl()
+
+        # Should show the real tool servers
+        assert "**fetch**" in result
+        assert "**database**" in result
+
+        # Should NOT show the orchestrator
+        assert "model-context-shell" not in result
+        assert "orchestrator" not in result
+
 
 @pytest.mark.asyncio
 class TestGetToolDetails:

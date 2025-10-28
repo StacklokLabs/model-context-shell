@@ -50,6 +50,15 @@ async def list_tools_from_server(workload: Dict[str, Any]) -> Dict[str, Any]:
     """List tools from a single MCP server workload"""
     name = workload.get("name", "unknown")
 
+    # Tools that indicate this is mcp-shell itself (orchestrator, not a tool provider)
+    # If a workload exposes these exact tools, it's likely us - filter it out
+    ORCHESTRATOR_TOOLS = {
+        "list_available_shell_commands",
+        "execute_pipeline",
+        "list_all_tools",
+        "get_tool_details"
+    }
+
     try:
         # Extract workload information
         transport_type = workload.get("transport_type", "")
@@ -89,6 +98,18 @@ async def list_tools_from_server(workload: Dict[str, Any]) -> Dict[str, Any]:
                         }
                         for tool in tools_response.tools
                     ]
+
+                    # Check if this workload is mcp-shell itself
+                    tool_names = {tool["name"] for tool in tools_info}
+                    if ORCHESTRATOR_TOOLS.issubset(tool_names):
+                        # This is us - skip to avoid self-reference
+                        return {
+                            "workload": name,
+                            "status": "skipped",
+                            "tools": [],
+                            "error": "Skipped: orchestrator workload (self)"
+                        }
+
                     return {
                         "workload": name,
                         "status": "success",
@@ -108,6 +129,18 @@ async def list_tools_from_server(workload: Dict[str, Any]) -> Dict[str, Any]:
                         }
                         for tool in tools_response.tools
                     ]
+
+                    # Check if this workload is mcp-shell itself
+                    tool_names = {tool["name"] for tool in tools_info}
+                    if ORCHESTRATOR_TOOLS.issubset(tool_names):
+                        # This is us - skip to avoid self-reference
+                        return {
+                            "workload": name,
+                            "status": "skipped",
+                            "tools": [],
+                            "error": "Skipped: orchestrator workload (self)"
+                        }
+
                     return {
                         "workload": name,
                         "status": "success",
