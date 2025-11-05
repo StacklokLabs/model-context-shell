@@ -121,6 +121,23 @@ python main.py --port 8080
 MCP_PORT=8081 MCP_HOST=0.0.0.0 python main.py
 ```
 
+### Run with ToolHive
+
+You can run the server as a ToolHive workload and proxy it via HTTP:
+
+```bash
+# Run from the registry with HTTP proxying (recommended simple setup)
+thv run model-context-shell --network host --foreground --transport streamable-http
+```
+
+- `--network host`: Exposes the server on the host network so ToolHive can reach `http://127.0.0.1:<MCP_PORT>` directly (no extra port mapping).
+- `--foreground`: Keeps the process attached in your terminal.
+- `--transport streamable-http`: Matches the server’s default transport and exposes `/mcp`.
+
+Notes:
+- The server respects `MCP_PORT`/`MCP_HOST`. To override the port when running with ToolHive, pass env vars: `thv run model-context-shell -e MCP_PORT=8081 --network host --foreground --transport streamable-http`.
+- Alternatively, you can use stdio transport: `thv run model-context-shell --foreground --transport stdio` (ToolHive will proxy it over SSE/HTTP).
+
 ### Available Tools
 
 #### `execute_pipeline`
