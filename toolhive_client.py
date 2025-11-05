@@ -215,7 +215,17 @@ def initialize():
             print(f"\nWorkload: {workload_name}")
             print(f"  Status: {status}")
             if tools:
-                print(f"  Tools: {', '.join(tools)}")
+                # tools may be a list of dicts ({"name": ..., "description": ...})
+                # or a list of strings (back-compat). Normalize to names for display.
+                try:
+                    names = [
+                        (t.get("name") if isinstance(t, dict) else str(t))
+                        for t in tools
+                    ]
+                except Exception:
+                    # Fallback: stringify everything
+                    names = [str(t) for t in tools]
+                print(f"  Tools: {', '.join(names)}")
             if error:
                 print(f"  Error: {error}")
     except Exception as e:

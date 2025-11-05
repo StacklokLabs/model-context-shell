@@ -68,8 +68,14 @@ This single call:
 ### Prerequisites
 
 - Python 3.13+
+- bubblewrap (`bwrap`) installed and available in PATH (required)
 - [ToolHive](https://toolhive.ai) (for managing MCP servers)
 - [uv](https://docs.astral.sh/uv/) (recommended) or pip
+
+Notes:
+- On Debian/Ubuntu: `sudo apt-get install bubblewrap`
+- On Fedora: `sudo dnf install bubblewrap`
+- On macOS, bubblewrap is Linux-only; run this server inside Docker/Colima or a Linux VM with bubblewrap installed
 
 ### Install via ToolHive
 
@@ -107,6 +113,12 @@ python main.py --transport stdio
 
 # Custom port
 python main.py --port 8080
+
+# Environment variables (used if no CLI flags provided)
+# MCP_PORT: Override listening port (default 8000)
+# MCP_HOST: Override bind host (default 127.0.0.1; 0.0.0.0 in containers)
+# Example:
+MCP_PORT=8081 MCP_HOST=0.0.0.0 python main.py
 ```
 
 ### Available Tools

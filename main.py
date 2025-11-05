@@ -197,6 +197,17 @@ async def get_tool_details(server: str, tool_name: str) -> str:
 if __name__ == "__main__":
     import sys
     import os
+    import shutil
+
+    # Require bubblewrap (bwrap) for sandboxing child processes
+    # Refuse to start the server if it's not available
+    if shutil.which("bwrap") is None:
+        sys.stderr.write(
+            "Error: bubblewrap (bwrap) is required but was not found in PATH.\n"
+            "Please install bubblewrap. On Debian/Ubuntu: 'apt-get install bubblewrap'.\n"
+            "On macOS, run inside a Linux VM/container with bubblewrap installed.\n"
+        )
+        sys.exit(1)
 
     # Check if running in container (ToolHive will manage thv serve)
     # If TOOLHIVE_HOST is set, we're in container mode and shouldn't start thv serve
@@ -213,9 +224,11 @@ if __name__ == "__main__":
     # Run the MCP server with HTTP transport
     # Check if --transport argument is provided
     transport = "streamable-http"  # Default to streamable-http for HTTP access
+    # Defaults; may be overridden by CLI or env
     port = 8000
     host = "0.0.0.0" if in_container else "127.0.0.1"  # Bind to 0.0.0.0 in container for external access
 
+    # CLI args take precedence over env
     for i, arg in enumerate(sys.argv):
         if arg == "--transport" and i + 1 < len(sys.argv):
             transport = sys.argv[i + 1]
@@ -223,6 +236,20 @@ if __name__ == "__main__":
             port = int(sys.argv[i + 1])
         elif arg == "--host" and i + 1 < len(sys.argv):
             host = sys.argv[i + 1]
+
+    # If not set via CLI, allow env overrides
+    if "--port" not in sys.argv:
+        mcp_port_env = os.environ.get("MCP_PORT")
+        if mcp_port_env:
+            try:
+                port = int(mcp_port_env)
+            except ValueError:
+                sys.stderr.write(f"Warning: MCP_PORT must be an integer, got '{mcp_port_env}'. Using default/CLI value {port}.\n")
+
+    if "--host" not in sys.argv:
+        mcp_host_env = os.environ.get("MCP_HOST")
+        if mcp_host_env:
+            host = mcp_host_env
 
     if transport == "stdio":
         mcp.run(transport="stdio")
