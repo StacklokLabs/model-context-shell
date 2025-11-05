@@ -10,6 +10,8 @@ import threading
 from typing import Iterable, Generator, Callable, Awaitable, Any, Dict
 import asyncio
 import json
+import shutil
+import os
 
 
 # Whitelist of allowed shell commands
@@ -67,6 +69,34 @@ class ShellEngine:
         self.tool_caller = tool_caller
         self.allowed_commands = allowed_commands or ALLOWED_COMMANDS
         self.default_timeout = default_timeout if default_timeout is not None else DEFAULT_TIMEOUT
+        # Bubblewrap integration: mandatory. Fail fast if not available.
+        self.bwrap_path = shutil.which("bwrap")
+        if not self.bwrap_path:
+            raise FileNotFoundError("bubblewrap (bwrap) is required but was not found in PATH")
+
+    def _bwrap_prefix(self) -> list[str]:
+        """Build the bubblewrap prefix for sandboxed command execution."""
+        if not self.bwrap_path:
+            raise FileNotFoundError("bubblewrap (bwrap) is required but was not found in PATH")
+
+        prefix: list[str] = [
+            self.bwrap_path,
+            "--unshare-all",
+            "--new-session",
+            "--die-with-parent",
+            "--proc", "/proc",
+            "--dev", "/dev",
+            "--tmpfs", "/tmp",
+            "--setenv", "PATH", "/usr/bin:/bin",
+            "--chdir", "/",
+        ]
+
+        # Read-only bind common system locations needed for typical dynamic binaries
+        for path in ("/usr", "/bin", "/lib", "/lib64"):
+            if os.path.exists(path):
+                prefix.extend(["--ro-bind", path, path])
+
+        return prefix
 
     def validate_command(self, cmd: str) -> None:
         """Validate that a command is in the allowed list."""
@@ -99,7 +129,8 @@ class ShellEngine:
         actual_timeout = timeout if timeout is not None else self.default_timeout
 
         # Build command list for subprocess (shell=False for security)
-        cmd_list = [cmd] + args
+        # Always wrap with bubblewrap for sandboxing
+        cmd_list = self._bwrap_prefix() + ["--", cmd] + args
 
         if for_each:
             # Execute command once per input line, streaming from upstream
