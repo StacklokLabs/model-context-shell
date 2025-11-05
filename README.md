@@ -68,8 +68,14 @@ This single call:
 ### Prerequisites
 
 - Python 3.13+
+- bubblewrap (`bwrap`) installed and available in PATH (required)
 - [ToolHive](https://toolhive.ai) (for managing MCP servers)
 - [uv](https://docs.astral.sh/uv/) (recommended) or pip
+
+Notes:
+- On Debian/Ubuntu: `sudo apt-get install bubblewrap`
+- On Fedora: `sudo dnf install bubblewrap`
+- On macOS, bubblewrap is Linux-only; run this server inside Docker/Colima or a Linux VM with bubblewrap installed
 
 ### Install via ToolHive
 
@@ -107,7 +113,31 @@ python main.py --transport stdio
 
 # Custom port
 python main.py --port 8080
+
+# Environment variables (used if no CLI flags provided)
+# MCP_PORT: Override listening port (default 8000)
+# MCP_HOST: Override bind host (default 127.0.0.1; 0.0.0.0 in containers)
+# Example:
+MCP_PORT=8081 MCP_HOST=0.0.0.0 python main.py
 ```
+
+### Run with ToolHive
+
+You can run the server as a ToolHive workload and proxy it via HTTP:
+
+```bash
+# Run from the registry with HTTP proxying (recommended simple setup)
+thv run model-context-shell --network host --foreground --transport streamable-http
+```
+
+- `--network host`: Exposes the server on the host network so ToolHive can reach `http://127.0.0.1:<MCP_PORT>` directly (no extra port mapping).
+- `--foreground`: Keeps the process attached in your terminal.
+- `--transport streamable-http`: Matches the server’s default transport and exposes `/mcp`.
+
+Notes:
+- The server respects `MCP_PORT`/`MCP_HOST`. To override the port when running with ToolHive, pass env vars: `thv run model-context-shell -e MCP_PORT=8081 --network host --foreground --transport streamable-http`.
+- On Linux with `--network host`, set the ToolHive host explicitly: `-e TOOLHIVE_HOST=127.0.0.1`. On Docker Desktop (macOS/Windows), use `-e TOOLHIVE_HOST=host.docker.internal`.
+- Alternatively, you can use stdio transport: `thv run model-context-shell --foreground --transport stdio` (ToolHive will proxy it over SSE/HTTP).
 
 ### Available Tools
 

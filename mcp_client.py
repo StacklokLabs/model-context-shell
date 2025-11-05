@@ -248,6 +248,16 @@ async def call_tool(
 
     Returns the tool result or raises an exception on error.
     """
+    # Resolve ToolHive connection dynamically when using defaults
+    # This makes it work in containers and local when thv serve chooses a dynamic port
+    try:
+        if host == DEFAULT_HOST and port == DEFAULT_PORT:
+            from toolhive_client import discover_toolhive
+            host, port = discover_toolhive(host=None, port=None)
+    except Exception:
+        # Fall back to provided/defaults if discovery fails
+        pass
+
     # Get the workload details
     workloads = await get_workloads(host, port)
     workload = next((w for w in workloads if w.get("name") == workload_name), None)
