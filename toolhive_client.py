@@ -137,8 +137,28 @@ def discover_toolhive(
             print(f"Port {port} not available, scanning for ToolHive...")
             port = _scan_for_toolhive(host, scan_port_start, scan_port_end)
     else:
-        # Scan for ToolHive
-        port = _scan_for_toolhive(host, scan_port_start, scan_port_end)
+        # Scan for ToolHive with host fallbacks
+        scan_hosts = [host]
+        # Add sensible fallbacks to handle containerized environments across OSes
+        if host != DEFAULT_HOST:
+            scan_hosts.append(DEFAULT_HOST)
+        if host != "host.docker.internal":
+            scan_hosts.append("host.docker.internal")
+
+        last_error = None
+        for candidate in scan_hosts:
+            try:
+                port = _scan_for_toolhive(candidate, scan_port_start, scan_port_end)
+                host = candidate
+                break
+            except ConnectionError as e:
+                last_error = e
+                continue
+        else:
+            # None of the candidates worked
+            raise last_error or ConnectionError(
+                f"ToolHive not found via hosts {scan_hosts} in ports {scan_port_start}-{scan_port_end}"
+            )
 
     # Cache the discovered values
     _discovered_host = host

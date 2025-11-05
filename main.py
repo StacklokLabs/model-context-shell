@@ -105,7 +105,14 @@ async def execute_pipeline(pipeline: list[dict]) -> str:
 
 async def _list_all_tools_impl() -> str:
     """Implementation of list_all_tools (extracted for testing)"""
-    tools_list = await mcp_client.list_tools()
+    # Discover ToolHive connection to avoid assuming default ports
+    try:
+        from toolhive_client import discover_toolhive
+        host, port = discover_toolhive()
+        tools_list = await mcp_client.list_tools(host=host, port=port)
+    except Exception:
+        # Fallback to defaults if discovery fails
+        tools_list = await mcp_client.list_tools()
 
     if not tools_list:
         return "No MCP servers found"

@@ -136,6 +136,7 @@ thv run model-context-shell --network host --foreground --transport streamable-h
 
 Notes:
 - The server respects `MCP_PORT`/`MCP_HOST`. To override the port when running with ToolHive, pass env vars: `thv run model-context-shell -e MCP_PORT=8081 --network host --foreground --transport streamable-http`.
+- On Linux with `--network host`, set the ToolHive host explicitly: `-e TOOLHIVE_HOST=127.0.0.1`. On Docker Desktop (macOS/Windows), use `-e TOOLHIVE_HOST=host.docker.internal`.
 - Alternatively, you can use stdio transport: `thv run model-context-shell --foreground --transport stdio` (ToolHive will proxy it over SSE/HTTP).
 
 ### Available Tools
