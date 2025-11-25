@@ -1,18 +1,22 @@
-import pytest
-from unittest.mock import AsyncMock, MagicMock
-from shell_engine import ShellEngine
 import json
 import time
+from unittest.mock import AsyncMock
+
+import pytest
+
+from shell_engine import ShellEngine
 
 
 class MockToolResult:
     """Mock object that mimics MCP tool result structure."""
+
     def __init__(self, text: str):
         self.content = [MockContent(text)]
 
 
 class MockContent:
     """Mock object for result content."""
+
     def __init__(self, text: str):
         self.text = text
 
@@ -163,10 +167,14 @@ class TestToolStage:
         engine = ShellEngine(tool_caller=mock_caller)
 
         upstream = iter([""])
-        result = await engine.tool_stage("test_server", "test_tool", {"param": "value"}, upstream)
+        result = await engine.tool_stage(
+            "test_server", "test_tool", {"param": "value"}, upstream
+        )
 
         assert result == "tool output"
-        mock_caller.assert_called_once_with("test_server", "test_tool", {"param": "value"})
+        mock_caller.assert_called_once_with(
+            "test_server", "test_tool", {"param": "value"}
+        )
 
     async def test_tool_stage_with_json_input(self):
         """Test tool call with JSON input that gets merged with args."""
@@ -176,10 +184,8 @@ class TestToolStage:
         json_input = json.dumps({"upstream_param": "upstream_value"})
         upstream = iter([json_input])
 
-        result = await engine.tool_stage(
-            "test_server", "test_tool",
-            {"explicit_param": "explicit_value"},
-            upstream
+        await engine.tool_stage(
+            "test_server", "test_tool", {"explicit_param": "explicit_value"}, upstream
         )
 
         # Args should be merged (explicit takes precedence)
@@ -194,10 +200,14 @@ class TestToolStage:
         engine = ShellEngine(tool_caller=mock_caller)
 
         # JSONL input: one JSON object per line
-        jsonl_input = '{"url": "http://example.com/1"}\n{"url": "http://example.com/2"}\n'
+        jsonl_input = (
+            '{"url": "http://example.com/1"}\n{"url": "http://example.com/2"}\n'
+        )
         upstream = iter([jsonl_input])
 
-        result = await engine.tool_stage("test_server", "fetch", {}, upstream, for_each=True)
+        result = await engine.tool_stage(
+            "test_server", "fetch", {}, upstream, for_each=True
+        )
 
         # Should be called twice (once per line)
         assert mock_caller.call_count == 2
@@ -208,11 +218,13 @@ class TestToolStage:
         mock_caller = AsyncMock()
         engine = ShellEngine(tool_caller=mock_caller)
 
-        invalid_input = 'not valid json\n'
+        invalid_input = "not valid json\n"
         upstream = iter([invalid_input])
 
         with pytest.raises(ValueError, match="Invalid JSON"):
-            await engine.tool_stage("test_server", "test_tool", {}, upstream, for_each=True)
+            await engine.tool_stage(
+                "test_server", "test_tool", {}, upstream, for_each=True
+            )
 
     async def test_tool_stage_for_each_non_dict_json(self):
         """Test tool call with for_each and non-dict JSON raises error."""
@@ -224,7 +236,9 @@ class TestToolStage:
         upstream = iter([array_input])
 
         with pytest.raises(ValueError, match="Expected JSON object"):
-            await engine.tool_stage("test_server", "test_tool", {}, upstream, for_each=True)
+            await engine.tool_stage(
+                "test_server", "test_tool", {}, upstream, for_each=True
+            )
 
     async def test_tool_stage_tool_error_handling(self):
         """Test tool call error handling in for_each mode."""
@@ -235,7 +249,9 @@ class TestToolStage:
         upstream = iter(['{"param": "value"}\n'])
 
         with pytest.raises(RuntimeError, match="Tool failed"):
-            await engine.tool_stage("test_server", "test_tool", {}, upstream, for_each=True)
+            await engine.tool_stage(
+                "test_server", "test_tool", {}, upstream, for_each=True
+            )
 
     async def test_tool_stage_result_with_no_content_attribute(self):
         """Test tool result that doesn't have content attribute."""
@@ -259,7 +275,7 @@ class TestExecutePipeline:
 
         pipeline = [
             {"type": "tool", "name": "generate", "server": "test", "args": {}},
-            {"type": "command", "command": "grep", "args": ["test"]}
+            {"type": "command", "command": "grep", "args": ["test"]},
         ]
 
         result = await engine.execute_pipeline(pipeline)
@@ -273,7 +289,7 @@ class TestExecutePipeline:
 
         pipeline = [
             {"type": "tool", "name": "get_data", "server": "test", "args": {}},
-            {"type": "command", "command": "grep", "args": ["a"]}
+            {"type": "command", "command": "grep", "args": ["a"]},
         ]
 
         result = await engine.execute_pipeline(pipeline)
@@ -288,7 +304,12 @@ class TestExecutePipeline:
         engine = ShellEngine(tool_caller=mock_caller)
 
         pipeline = [
-            {"type": "tool", "name": "test_tool", "server": "test_server", "args": {"key": "value"}}
+            {
+                "type": "tool",
+                "name": "test_tool",
+                "server": "test_server",
+                "args": {"key": "value"},
+            }
         ]
 
         result = await engine.execute_pipeline(pipeline)
@@ -302,8 +323,13 @@ class TestExecutePipeline:
         engine = ShellEngine(tool_caller=mock_caller)
 
         pipeline = [
-            {"type": "tool", "name": "fetch", "server": "http", "args": {"url": "http://example.com"}},
-            {"type": "command", "command": "jq", "args": [".data"]}
+            {
+                "type": "tool",
+                "name": "fetch",
+                "server": "http",
+                "args": {"url": "http://example.com"},
+            },
+            {"type": "command", "command": "jq", "args": [".data"]},
         ]
 
         result = await engine.execute_pipeline(pipeline)
@@ -315,9 +341,7 @@ class TestExecutePipeline:
         mock_caller = AsyncMock()
         engine = ShellEngine(tool_caller=mock_caller)
 
-        pipeline = [
-            {"type": "command", "command": "rm", "args": ["-rf", "/"]}
-        ]
+        pipeline = [{"type": "command", "command": "rm", "args": ["-rf", "/"]}]
 
         result = await engine.execute_pipeline(pipeline)
 
@@ -344,9 +368,7 @@ class TestExecutePipeline:
         engine = ShellEngine(tool_caller=mock_caller)
 
         # Missing "name" field
-        pipeline = [
-            {"type": "tool", "server": "test_server", "args": {}}
-        ]
+        pipeline = [{"type": "tool", "server": "test_server", "args": {}}]
 
         result = await engine.execute_pipeline(pipeline)
 
@@ -358,9 +380,7 @@ class TestExecutePipeline:
         mock_caller = AsyncMock()
         engine = ShellEngine(tool_caller=mock_caller)
 
-        pipeline = [
-            {"type": "command", "command": "grep", "args": "not-a-list"}
-        ]
+        pipeline = [{"type": "command", "command": "grep", "args": "not-a-list"}]
 
         result = await engine.execute_pipeline(pipeline)
 
@@ -372,9 +392,7 @@ class TestExecutePipeline:
         mock_caller = AsyncMock()
         engine = ShellEngine(tool_caller=mock_caller)
 
-        pipeline = [
-            {"type": "unknown_type", "data": "test"}
-        ]
+        pipeline = [{"type": "unknown_type", "data": "test"}]
 
         result = await engine.execute_pipeline(pipeline)
 
@@ -410,7 +428,7 @@ class TestExecutePipeline:
 
         pipeline = [
             {"type": "tool", "name": "list_urls", "server": "api", "args": {}},
-            {"type": "tool", "name": "fetch", "server": "http", "for_each": True}
+            {"type": "tool", "name": "fetch", "server": "http", "for_each": True},
         ]
 
         result = await engine.execute_pipeline(pipeline)
@@ -428,14 +446,13 @@ class TestErrorHandling:
 
     async def test_tool_caller_exception(self):
         """Test that tool caller exceptions are properly propagated."""
+
         async def failing_caller(server, tool, args):
             raise ValueError("Tool call failed")
 
         engine = ShellEngine(tool_caller=failing_caller)
 
-        pipeline = [
-            {"type": "tool", "name": "test", "server": "test", "args": {}}
-        ]
+        pipeline = [{"type": "tool", "name": "test", "server": "test", "args": {}}]
 
         result = await engine.execute_pipeline(pipeline)
 
@@ -449,14 +466,19 @@ class TestErrorHandling:
 
         pipeline = [
             {"type": "tool", "name": "get_data", "server": "test", "args": {}},
-            {"type": "command", "command": "rm", "args": ["-rf", "/"]},  # Stage 2 - forbidden
-            {"type": "command", "command": "grep", "args": ["never reached"]}
+            {
+                "type": "command",
+                "command": "rm",
+                "args": ["-rf", "/"],
+            },  # Stage 2 - forbidden
+            {"type": "command", "command": "grep", "args": ["never reached"]},
         ]
 
         result = await engine.execute_pipeline(pipeline)
 
         assert "Pipeline execution failed" in result
         assert "Stage 2" in result
+
 
 @pytest.mark.asyncio
 class TestShellCommandTimeouts:
@@ -540,11 +562,17 @@ class TestShellCommandTimeouts:
         # Each line would cause a slow command, but should timeout
         pipeline = [
             {"type": "tool", "name": "get_lines", "server": "test", "args": {}},
-            {"type": "command", "command": "sleep", "args": ["10"], "for_each": True, "timeout": 0.2}
+            {
+                "type": "command",
+                "command": "sleep",
+                "args": ["10"],
+                "for_each": True,
+                "timeout": 0.2,
+            },
         ]
 
         start = time.time()
-        result = await engine.execute_pipeline(pipeline)
+        await engine.execute_pipeline(pipeline)
         elapsed = time.time() - start
 
         # Should timeout quickly, not wait 20 seconds (10s × 2 lines)
@@ -571,7 +599,7 @@ class TestShellCommandTimeouts:
         engine = ShellEngine(tool_caller=mock_caller, default_timeout=5.0)
 
         # Verify the default timeout is set
-        assert hasattr(engine, 'default_timeout')
+        assert hasattr(engine, "default_timeout")
         assert engine.default_timeout == 5.0
 
 
@@ -612,8 +640,9 @@ class TestStreamingForEach:
         # Current implementation will fail this because it calls "".join(upstream) first
         first_result_idx = consumption_log.index("first_result_received")
         exhausted_idx = consumption_log.index("generator_exhausted")
-        assert first_result_idx < exhausted_idx, \
+        assert first_result_idx < exhausted_idx, (
             f"Generator was exhausted before first result! Log: {consumption_log}"
+        )
 
     async def test_tool_stage_for_each_streams_lazily(self):
         """Test that tool_stage for_each processes lines as they arrive, not after loading all."""
@@ -639,7 +668,7 @@ class TestStreamingForEach:
         upstream = tracked_generator()
 
         # Process with for_each
-        result = await engine.tool_stage("test", "test_tool", {}, upstream, for_each=True)
+        await engine.tool_stage("test", "test_tool", {}, upstream, for_each=True)
 
         # At least verify tool was called
         assert len(call_count) > 0
@@ -667,7 +696,7 @@ class TestStreamingForEach:
 
         # Process with for_each - use 'head' which passes through input
         result_count = 0
-        for output in engine.shell_stage("head", [], upstream, for_each=True):
+        for _output in engine.shell_stage("head", [], upstream, for_each=True):
             result_count += 1
             # If we're streaming, we should be able to break early
             # without consuming the entire generator

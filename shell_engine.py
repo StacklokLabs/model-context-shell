@@ -5,14 +5,12 @@ This module provides a reusable engine for executing pipelines of shell commands
 It is decoupled from any specific MCP implementation and uses dependency injection for tool calling.
 """
 
-import subprocess
-import threading
-from typing import Iterable, Generator, Callable, Awaitable, Any, Dict
-import asyncio
 import json
-import shutil
 import os
-
+import shutil
+import subprocess
+from collections.abc import Awaitable, Callable, Generator, Iterable
+from typing import Any
 
 # Whitelist of allowed shell commands
 # Note: Commands that only generate hardcoded text (echo, printf) are excluded
@@ -53,9 +51,9 @@ class ShellEngine:
 
     def __init__(
         self,
-        tool_caller: Callable[[str, str, Dict[str, Any]], Awaitable[Any]],
+        tool_caller: Callable[[str, str, dict[str, Any]], Awaitable[Any]],
         allowed_commands: list[str] = None,
-        default_timeout: float = None
+        default_timeout: float = None,
     ):
         """
         Initialize the ShellEngine.
@@ -68,27 +66,39 @@ class ShellEngine:
         """
         self.tool_caller = tool_caller
         self.allowed_commands = allowed_commands or ALLOWED_COMMANDS
-        self.default_timeout = default_timeout if default_timeout is not None else DEFAULT_TIMEOUT
+        self.default_timeout = (
+            default_timeout if default_timeout is not None else DEFAULT_TIMEOUT
+        )
         # Bubblewrap integration: mandatory. Fail fast if not available.
         self.bwrap_path = shutil.which("bwrap")
         if not self.bwrap_path:
-            raise FileNotFoundError("bubblewrap (bwrap) is required but was not found in PATH")
+            raise FileNotFoundError(
+                "bubblewrap (bwrap) is required but was not found in PATH"
+            )
 
     def _bwrap_prefix(self) -> list[str]:
         """Build the bubblewrap prefix for sandboxed command execution."""
         if not self.bwrap_path:
-            raise FileNotFoundError("bubblewrap (bwrap) is required but was not found in PATH")
+            raise FileNotFoundError(
+                "bubblewrap (bwrap) is required but was not found in PATH"
+            )
 
         prefix: list[str] = [
             self.bwrap_path,
             "--unshare-all",
             "--new-session",
             "--die-with-parent",
-            "--proc", "/proc",
-            "--dev", "/dev",
-            "--tmpfs", "/tmp",
-            "--setenv", "PATH", "/usr/bin:/bin",
-            "--chdir", "/",
+            "--proc",
+            "/proc",
+            "--dev",
+            "/dev",
+            "--tmpfs",
+            "/tmp",
+            "--setenv",
+            "PATH",
+            "/usr/bin:/bin",
+            "--chdir",
+            "/",
         ]
 
         # Read-only bind common system locations needed for typical dynamic binaries
@@ -119,8 +129,8 @@ class ShellEngine:
         args: list[str],
         upstream: Iterable[str],
         for_each: bool = False,
-        timeout: float = None
-    ) -> Generator[str, None, None]:
+        timeout: float = None,
+    ) -> Generator[str]:
         """Run a shell command as a streaming stage, consuming upstream lazily."""
         # Validate and set timeout
         if timeout is not None and timeout <= 0:
@@ -142,8 +152,8 @@ class ShellEngine:
                 buffer += chunk
 
                 # Process all complete lines in buffer
-                while '\n' in buffer:
-                    line, buffer = buffer.split('\n', 1)
+                while "\n" in buffer:
+                    line, buffer = buffer.split("\n", 1)
 
                     if not line.strip():
                         continue
@@ -154,18 +164,22 @@ class ShellEngine:
                         stdin=subprocess.PIPE,
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE,
-                        text=True
+                        text=True,
                     )
 
                     # Write single line and get output with timeout
                     try:
-                        stdout, _ = proc.communicate(input=line + '\n', timeout=actual_timeout)
+                        stdout, _ = proc.communicate(
+                            input=line + "\n", timeout=actual_timeout
+                        )
                         for output_line in stdout.splitlines(keepends=True):
                             yield output_line
                     except subprocess.TimeoutExpired:
                         proc.kill()
                         proc.wait()
-                        raise TimeoutError(f"Command '{cmd}' timed out after {actual_timeout} seconds")
+                        raise TimeoutError(
+                            f"Command '{cmd}' timed out after {actual_timeout} seconds"
+                        )
 
             # Process any remaining data in buffer (line without trailing newline)
             if buffer.strip():
@@ -175,17 +189,21 @@ class ShellEngine:
                     stdin=subprocess.PIPE,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
-                    text=True
+                    text=True,
                 )
 
                 try:
-                    stdout, _ = proc.communicate(input=buffer + '\n', timeout=actual_timeout)
+                    stdout, _ = proc.communicate(
+                        input=buffer + "\n", timeout=actual_timeout
+                    )
                     for output_line in stdout.splitlines(keepends=True):
                         yield output_line
                 except subprocess.TimeoutExpired:
                     proc.kill()
                     proc.wait()
-                    raise TimeoutError(f"Command '{cmd}' timed out after {actual_timeout} seconds")
+                    raise TimeoutError(
+                        f"Command '{cmd}' timed out after {actual_timeout} seconds"
+                    )
         else:
             # Execute command once with all input
             proc = subprocess.Popen(
@@ -194,7 +212,7 @@ class ShellEngine:
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                text=True
+                text=True,
             )
 
             # Collect all upstream data
@@ -209,7 +227,9 @@ class ShellEngine:
             except subprocess.TimeoutExpired:
                 proc.kill()
                 proc.wait()
-                raise TimeoutError(f"Command '{cmd}' timed out after {actual_timeout} seconds")
+                raise TimeoutError(
+                    f"Command '{cmd}' timed out after {actual_timeout} seconds"
+                )
 
             # Like shell pipelines, we don't fail on non-zero exit codes
             # The pipeline continues and only breaks on severe errors (handled by exceptions above)
@@ -220,7 +240,7 @@ class ShellEngine:
         tool: str,
         args: dict,
         upstream: Iterable[str],
-        for_each: bool = False
+        for_each: bool = False,
     ) -> str:
         """Call a tool with upstream data as input."""
 
@@ -235,8 +255,8 @@ class ShellEngine:
                 buffer += chunk
 
                 # Process all complete lines in buffer
-                while '\n' in buffer:
-                    line, buffer = buffer.split('\n', 1)
+                while "\n" in buffer:
+                    line, buffer = buffer.split("\n", 1)
                     line_num += 1
 
                     if not line.strip():
@@ -278,9 +298,9 @@ class ShellEngine:
                         ) from e
 
                     # Extract content from result
-                    if hasattr(result, 'content'):
+                    if hasattr(result, "content"):
                         for content_item in result.content:
-                            if hasattr(content_item, 'text'):
+                            if hasattr(content_item, "text"):
                                 results.append(content_item.text)
                     else:
                         results.append(str(result))
@@ -326,14 +346,14 @@ class ShellEngine:
                     ) from e
 
                 # Extract content from result
-                if hasattr(result, 'content'):
+                if hasattr(result, "content"):
                     for content_item in result.content:
-                        if hasattr(content_item, 'text'):
+                        if hasattr(content_item, "text"):
                             results.append(content_item.text)
                 else:
                     results.append(str(result))
 
-            return '\n'.join(results)
+            return "\n".join(results)
 
         else:
             # Execute tool once with all upstream data
@@ -360,9 +380,9 @@ class ShellEngine:
             result = await self.tool_caller(server, tool, args)
 
             # Extract content from result
-            if hasattr(result, 'content'):
+            if hasattr(result, "content"):
                 for content_item in result.content:
-                    if hasattr(content_item, 'text'):
+                    if hasattr(content_item, "text"):
                         return content_item.text
 
             # Fallback to string representation
@@ -390,20 +410,32 @@ class ShellEngine:
                 if item_type == "command":
                     command = item.get("command", "")
                     cmd_args = item.get("args", [])
-                    cmd_timeout = item.get("timeout")  # Optional timeout for this specific command
+                    cmd_timeout = item.get(
+                        "timeout"
+                    )  # Optional timeout for this specific command
 
                     if not command:
                         raise ValueError("Command stage missing 'command' field")
 
                     if not isinstance(cmd_args, list):
-                        raise ValueError(f"Command 'args' must be an array, got {type(cmd_args).__name__}")
+                        raise ValueError(
+                            f"Command 'args' must be an array, got {type(cmd_args).__name__}"
+                        )
 
                     try:
                         # Validate command before execution
                         self.validate_command(command)
-                        upstream = self.shell_stage(command, cmd_args, upstream, for_each=for_each, timeout=cmd_timeout)
+                        upstream = self.shell_stage(
+                            command,
+                            cmd_args,
+                            upstream,
+                            for_each=for_each,
+                            timeout=cmd_timeout,
+                        )
                     except Exception as e:
-                        raise RuntimeError(f"Stage {idx + 1} (command) failed: {str(e)}")
+                        raise RuntimeError(
+                            f"Stage {idx + 1} (command) failed: {str(e)}"
+                        )
 
                 elif item_type == "tool":
                     tool_name = item.get("name", "")
@@ -417,15 +449,19 @@ class ShellEngine:
 
                     try:
                         # Tool stages consume all upstream and return a result
-                        result = await self.tool_stage(server_name, tool_name, args, upstream, for_each=for_each)
+                        result = await self.tool_stage(
+                            server_name, tool_name, args, upstream, for_each=for_each
+                        )
                         # Convert result back to a stream for next stage
                         # Ensure result ends with newline for proper shell command processing
-                        if result and not result.endswith('\n'):
-                            result += '\n'
+                        if result and not result.endswith("\n"):
+                            result += "\n"
 
                         upstream = iter([result])
                     except Exception as e:
-                        raise RuntimeError(f"Stage {idx + 1} (tool {server_name}/{tool_name}) failed: {str(e)}")
+                        raise RuntimeError(
+                            f"Stage {idx + 1} (tool {server_name}/{tool_name}) failed: {str(e)}"
+                        )
 
                 else:
                     raise ValueError(f"Unknown pipeline item type: {item_type}")
@@ -436,5 +472,6 @@ class ShellEngine:
 
         except Exception as e:
             import traceback
+
             error_details = f"Pipeline execution failed: {str(e)}\n\nTraceback:\n{traceback.format_exc()}"
             return error_details

@@ -15,9 +15,25 @@ dev = [
     "pytest-asyncio>=1.2.0",
     "pytest-mock>=3.15.1",
     "pytest-timeout>=2.3.1",
+    "ruff>=0.14.6",
 ]
 
 [tool.pytest.ini_options]
 filterwarnings = [
     "ignore::RuntimeWarning:_pytest.unraisableexception",
 ]
+
+[tool.ruff]
+line-length = 88
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = [
+    "E501",   # line length handled by formatter
+    "SIM117", # nested with statements - not always combinable with async tuple unpacking
+    "B904",   # raise from - would require invasive changes
+]
+
+[tool.ruff.format]
+quote-style = "double"

@@ -1,6 +1,8 @@
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
 import httpx
+import pytest
+
 import mcp_client
 
 
@@ -12,7 +14,7 @@ class TestGetWorkloads:
         mock_response.json.return_value = {
             "workloads": [
                 {"name": "workload1", "status": "running"},
-                {"name": "workload2", "status": "running"}
+                {"name": "workload2", "status": "running"},
             ]
         }
 
@@ -46,7 +48,7 @@ class TestListToolsFromServer:
             "name": "test-workload",
             "status": "running",
             "transport_type": "streamable-http",
-            "url": "http://localhost:8080/mcp"
+            "url": "http://localhost:8080/mcp",
         }
 
         # Mock the MCP client
@@ -80,8 +82,14 @@ class TestListToolsFromServer:
         assert result["workload"] == "test-workload"
         assert result["status"] == "success"
         assert len(result["tools"]) == 2
-        assert result["tools"][0] == {"name": "test_tool_1", "description": "Description for tool 1"}
-        assert result["tools"][1] == {"name": "test_tool_2", "description": "Description for tool 2"}
+        assert result["tools"][0] == {
+            "name": "test_tool_1",
+            "description": "Description for tool 1",
+        }
+        assert result["tools"][1] == {
+            "name": "test_tool_2",
+            "description": "Description for tool 2",
+        }
         assert result["error"] is None
 
     async def test_sse_proxy_connection(self, mocker):
@@ -91,7 +99,7 @@ class TestListToolsFromServer:
             "status": "running",
             "transport_type": "stdio",
             "proxy_mode": "sse",
-            "url": "http://localhost:8080/sse"
+            "url": "http://localhost:8080/sse",
         }
 
         # Mock the MCP client
@@ -122,7 +130,10 @@ class TestListToolsFromServer:
         assert result["workload"] == "test-workload"
         assert result["status"] == "success"
         assert len(result["tools"]) == 1
-        assert result["tools"][0] == {"name": "sse_tool", "description": "SSE tool description"}
+        assert result["tools"][0] == {
+            "name": "sse_tool",
+            "description": "SSE tool description",
+        }
         assert result["error"] is None
 
     async def test_unsupported_transport(self):
@@ -131,7 +142,7 @@ class TestListToolsFromServer:
             "name": "test-workload",
             "status": "running",
             "transport_type": "stdio",
-            "url": "http://localhost:8080/mcp"
+            "url": "http://localhost:8080/mcp",
         }
 
         result = await mcp_client.list_tools_from_server(workload)
@@ -147,7 +158,7 @@ class TestListToolsFromServer:
             "name": "test-workload",
             "status": "stopped",
             "transport_type": "streamable-http",
-            "url": "http://localhost:8080/mcp"
+            "url": "http://localhost:8080/mcp",
         }
 
         result = await mcp_client.list_tools_from_server(workload)
@@ -163,7 +174,7 @@ class TestListToolsFromServer:
             "name": "test-workload",
             "status": "running",
             "transport_type": "streamable-http",
-            "url": ""
+            "url": "",
         }
 
         result = await mcp_client.list_tools_from_server(workload)
@@ -179,10 +190,13 @@ class TestListToolsFromServer:
             "name": "test-workload",
             "status": "running",
             "transport_type": "streamable-http",
-            "url": "http://localhost:8080/mcp"
+            "url": "http://localhost:8080/mcp",
         }
 
-        mocker.patch("mcp_client.streamablehttp_client", side_effect=Exception("Connection failed"))
+        mocker.patch(
+            "mcp_client.streamablehttp_client",
+            side_effect=Exception("Connection failed"),
+        )
 
         result = await mcp_client.list_tools_from_server(workload)
 
@@ -207,7 +221,7 @@ class TestListTools:
         """Test list_tools with multiple workloads"""
         mock_workloads = [
             {"name": "workload1", "status": "running"},
-            {"name": "workload2", "status": "running"}
+            {"name": "workload2", "status": "running"},
         ]
         mocker.patch("mcp_client.get_workloads", return_value=mock_workloads)
 
@@ -228,8 +242,7 @@ class TestListTools:
     async def test_list_tools_with_api_error(self, mocker):
         """Test list_tools when API call fails"""
         mocker.patch(
-            "mcp_client.get_workloads",
-            side_effect=httpx.HTTPError("Connection failed")
+            "mcp_client.get_workloads", side_effect=httpx.HTTPError("Connection failed")
         )
 
         result = await mcp_client.list_tools()
@@ -242,7 +255,7 @@ class TestListTools:
         """Test that list_tools handles individual workload failures gracefully"""
         mock_workloads = [
             {"name": "workload1", "status": "running"},
-            {"name": "workload2", "status": "running"}
+            {"name": "workload2", "status": "running"},
         ]
         mocker.patch("mcp_client.get_workloads", return_value=mock_workloads)
 
@@ -253,7 +266,7 @@ class TestListTools:
                     "workload": "workload1",
                     "status": "success",
                     "tools": ["tool1"],
-                    "error": None
+                    "error": None,
                 }
             raise Exception("Connection timeout")
 
@@ -280,7 +293,7 @@ class TestListTools:
             "name": "test-workload",
             "status": "running",
             "transport_type": "streamable-http",
-            "url": "http://localhost:8080/mcp"
+            "url": "http://localhost:8080/mcp",
         }
 
         # Mock the MCP client
@@ -319,13 +332,15 @@ class TestGetToolDetails:
             "name": "test-server",
             "status": "running",
             "transport_type": "streamable-http",
-            "url": "http://localhost:8080/mcp"
+            "url": "http://localhost:8080/mcp",
         }
 
         mocker.patch("mcp_client.get_workloads", return_value=[workload])
 
         # Mock discover_toolhive to return host and port
-        mocker.patch("toolhive_client.discover_toolhive", return_value=("localhost", 8080))
+        mocker.patch(
+            "toolhive_client.discover_toolhive", return_value=("localhost", 8080)
+        )
 
         # Mock the MCP client
         mock_session = MagicMock()
@@ -336,11 +351,8 @@ class TestGetToolDetails:
         mock_tool.description = "A test tool for testing"
         mock_tool.inputSchema = {
             "type": "object",
-            "properties": {
-                "param1": {"type": "string"},
-                "param2": {"type": "number"}
-            },
-            "required": ["param1"]
+            "properties": {"param1": {"type": "string"}, "param2": {"type": "number"}},
+            "required": ["param1"],
         }
 
         mock_tools_response = MagicMock()
@@ -358,7 +370,9 @@ class TestGetToolDetails:
         mocker.patch("mcp_client.streamablehttp_client", return_value=mock_sse)
         mocker.patch("mcp_client.ClientSession", return_value=mock_client_session)
 
-        result = await mcp_client.get_tool_details_from_server("test-server", "test_tool")
+        result = await mcp_client.get_tool_details_from_server(
+            "test-server", "test_tool"
+        )
 
         assert result["name"] == "test_tool"
         assert result["description"] == "A test tool for testing"
@@ -368,9 +382,13 @@ class TestGetToolDetails:
     async def test_get_tool_details_workload_not_found(self, mocker):
         """Test get_tool_details when workload doesn't exist"""
         mocker.patch("mcp_client.get_workloads", return_value=[])
-        mocker.patch("toolhive_client.discover_toolhive", return_value=("localhost", 8080))
+        mocker.patch(
+            "toolhive_client.discover_toolhive", return_value=("localhost", 8080)
+        )
 
-        result = await mcp_client.get_tool_details_from_server("nonexistent", "test_tool")
+        result = await mcp_client.get_tool_details_from_server(
+            "nonexistent", "test_tool"
+        )
 
         assert "error" in result
         assert "not found" in result["error"]
@@ -381,11 +399,13 @@ class TestGetToolDetails:
             "name": "test-server",
             "status": "running",
             "transport_type": "streamable-http",
-            "url": "http://localhost:8080/mcp"
+            "url": "http://localhost:8080/mcp",
         }
 
         mocker.patch("mcp_client.get_workloads", return_value=[workload])
-        mocker.patch("toolhive_client.discover_toolhive", return_value=("localhost", 8080))
+        mocker.patch(
+            "toolhive_client.discover_toolhive", return_value=("localhost", 8080)
+        )
 
         # Mock the MCP client with a different tool
         mock_session = MagicMock()
@@ -411,7 +431,9 @@ class TestGetToolDetails:
         mocker.patch("mcp_client.streamablehttp_client", return_value=mock_sse)
         mocker.patch("mcp_client.ClientSession", return_value=mock_client_session)
 
-        result = await mcp_client.get_tool_details_from_server("test-server", "nonexistent_tool")
+        result = await mcp_client.get_tool_details_from_server(
+            "test-server", "nonexistent_tool"
+        )
 
         assert "error" in result
         assert "not found" in result["error"]
@@ -422,11 +444,13 @@ class TestGetToolDetails:
             "name": "test-server",
             "status": "running",
             "proxy_mode": "sse",
-            "url": "http://localhost:8080/sse"
+            "url": "http://localhost:8080/sse",
         }
 
         mocker.patch("mcp_client.get_workloads", return_value=[workload])
-        mocker.patch("toolhive_client.discover_toolhive", return_value=("localhost", 8080))
+        mocker.patch(
+            "toolhive_client.discover_toolhive", return_value=("localhost", 8080)
+        )
 
         # Mock the MCP client
         mock_session = MagicMock()
@@ -452,7 +476,9 @@ class TestGetToolDetails:
         mocker.patch("mcp_client.sse_client", return_value=mock_sse)
         mocker.patch("mcp_client.ClientSession", return_value=mock_client_session)
 
-        result = await mcp_client.get_tool_details_from_server("test-server", "sse_tool")
+        result = await mcp_client.get_tool_details_from_server(
+            "test-server", "sse_tool"
+        )
 
         assert result["name"] == "sse_tool"
         assert result["description"] == "SSE tool"
@@ -463,14 +489,21 @@ class TestGetToolDetails:
             "name": "test-server",
             "status": "running",
             "transport_type": "streamable-http",
-            "url": "http://localhost:8080/mcp"
+            "url": "http://localhost:8080/mcp",
         }
 
         mocker.patch("mcp_client.get_workloads", return_value=[workload])
-        mocker.patch("toolhive_client.discover_toolhive", return_value=("localhost", 8080))
-        mocker.patch("mcp_client.streamablehttp_client", side_effect=Exception("Connection failed"))
+        mocker.patch(
+            "toolhive_client.discover_toolhive", return_value=("localhost", 8080)
+        )
+        mocker.patch(
+            "mcp_client.streamablehttp_client",
+            side_effect=Exception("Connection failed"),
+        )
 
-        result = await mcp_client.get_tool_details_from_server("test-server", "test_tool")
+        result = await mcp_client.get_tool_details_from_server(
+            "test-server", "test_tool"
+        )
 
         assert "error" in result
         assert "Connection failed" in result["error"]
@@ -488,7 +521,7 @@ class TestSelfFiltering:
             "status": "running",
             "url": "http://localhost:9000/sse",
             "proxy_mode": "sse",
-            "transport_type": "sse"
+            "transport_type": "sse",
         }
 
         # Mock the SSE client session to return our orchestrator tools
@@ -540,7 +573,7 @@ class TestSelfFiltering:
             "status": "running",
             "url": "http://localhost:9000/mcp",
             "proxy_mode": "streamable-http",
-            "transport_type": "streamable-http"
+            "transport_type": "streamable-http",
         }
 
         mock_session = AsyncMock()
@@ -591,7 +624,7 @@ class TestSelfFiltering:
             "status": "running",
             "url": "http://localhost:9000/sse",
             "proxy_mode": "sse",
-            "transport_type": "sse"
+            "transport_type": "sse",
         }
 
         # Only has 2 of the 4 orchestrator tools

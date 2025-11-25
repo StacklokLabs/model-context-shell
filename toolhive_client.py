@@ -1,10 +1,12 @@
-import subprocess
-import atexit
-import time
 import asyncio
-import httpx
-import mcp_client
+import atexit
 import os
+import subprocess
+import time
+
+import httpx
+
+import mcp_client
 
 # Global variable to hold the thv serve process
 thv_process = None
@@ -56,8 +58,7 @@ def _is_toolhive_available(host: str, port: int, timeout: float = 1.0) -> bool:
     """
     try:
         response = httpx.get(
-            f"http://{host}:{port}/api/v1beta/version",
-            timeout=timeout
+            f"http://{host}:{port}/api/v1beta/version", timeout=timeout
         )
         response.raise_for_status()
         data = response.json()
@@ -70,14 +71,16 @@ def _is_toolhive_available(host: str, port: int, timeout: float = 1.0) -> bool:
 def _scan_for_toolhive(
     host: str,
     scan_port_start: int = DEFAULT_SCAN_PORT_START,
-    scan_port_end: int = DEFAULT_SCAN_PORT_END
+    scan_port_end: int = DEFAULT_SCAN_PORT_END,
 ) -> int:
     """
     Scan for ToolHive in the specified port range.
 
     Returns the first port where ToolHive is found, or raises ConnectionError.
     """
-    print(f"Scanning for ToolHive on {host} in port range {scan_port_start}-{scan_port_end}...")
+    print(
+        f"Scanning for ToolHive on {host} in port range {scan_port_start}-{scan_port_end}..."
+    )
 
     for port in range(scan_port_start, scan_port_end + 1):
         if _is_toolhive_available(host, port):
@@ -95,7 +98,7 @@ def discover_toolhive(
     port: int = None,
     scan_port_start: int = DEFAULT_SCAN_PORT_START,
     scan_port_end: int = DEFAULT_SCAN_PORT_END,
-    skip_port_discovery: bool = False
+    skip_port_discovery: bool = False,
 ) -> tuple[str, int]:
     """
     Discover ToolHive connection parameters.
@@ -176,16 +179,9 @@ def list_workloads(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> dict:
         with httpx.Client(timeout=5.0) as client:
             response = client.get(f"{base_url}{endpoint}")
             response.raise_for_status()
-            return {
-                "success": True,
-                "endpoint": endpoint,
-                "data": response.json()
-            }
+            return {"success": True, "endpoint": endpoint, "data": response.json()}
     except Exception as e:
-        return {
-            "success": False,
-            "error": str(e)
-        }
+        return {"success": False, "error": str(e)}
 
 
 def initialize():
