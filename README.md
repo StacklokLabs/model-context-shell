@@ -1,41 +1,44 @@
 # MCP Shell
 
-**A shell interface for coordinating MCP tool calls using Unix-style pipelines**
+**Unix pipelines for MCP tools — coordinate thousands of tool calls in a single request**
 
 ## Overview
 
-MCP Shell is an experimental MCP server that enables AI agents to coordinate multiple tool calls using familiar Unix shell patterns. Instead of making sequential tool calls that load all data into model context, agents can construct complex data processing workflows as single pipeline operations.
+MCP Shell is an MCP server that lets AI agents compose tool calls using Unix shell patterns. Instead of the agent orchestrating each tool call individually (loading all intermediate data into context), agents can express complex workflows as pipelines that execute server-side.
 
-## The Problem
+```bash
+# What agents can express:
+fetch https://api.example.com/users \
+  | jq -c '.[] | .profile_url' \
+  | for_each fetch \
+  | jq '[.[] | select(.active)] | sort_by(.name)'
+```
 
-The Model Context Protocol (MCP) provides a standardized interface for tool calls, but has limitations when it comes to complex workflows:
+This single pipeline fetches a list, extracts URLs, fetches each one, filters the results, and returns only the final output to the agent — no intermediate data in context.
 
-- **Sequential coordination**: Multiple tool calls must be coordinated by the agent, reading full responses into context each time
-- **Context limitations**: All data must fit into the model's context window
-- **Limited composition**: No standardized way to combine tools beyond agent-level orchestration
-- **Token waste**: Agents must process all intermediate data, even when only the final result matters
-- **Default to shell access**: Coding agents often resort to full system shell access for complex tasks, creating security concerns and approval fatigue
+## Why This Matters
+
+MCP is great — standardized interfaces, structured data, extensible ecosystem. But for complex workflows, agents hit real limits:
+
+| Problem | Impact |
+|---------|--------|
+| **Manual orchestration only** | Agent must coordinate every tool call, wasting tokens on intermediate results |
+| **No native composition** | Can't combine tools except through the LLM itself |
+| **Context limits** | Can't handle large datasets or many sequential calls |
+| **Approval fatigue** | Complex tasks push agents toward full shell access, requiring constant user approval |
+
+**The result**: Fewer tool calls, simpler workflows, less capable agents.
 
 ## The Solution
 
-MCP Shell allows agents to coordinate tool calls using Unix shell patterns:
+MCP Shell gives agents Unix-style composition for MCP tools:
 
-```bash
-# Conceptually, agents can now do this:
-fetch https://api.example.com/pokemon/ability/34 | \
-  jq -c '.pokemon[] | .pokemon.url' | \
-  for_each fetch | \
-  jq '[.[] | select(.weight > 500)] | sort_by(.name)'
-```
-
-### Key Benefits
-
-1. **Reduced token usage**: Only final results are loaded into model context, not intermediate data
-2. **Scalability**: Can handle thousands of tool calls without hitting context limits
-3. **Streaming**: Data flows between stages using iterators, handling datasets larger than memory
-4. **Security**: Sandboxed execution with whitelisted commands, no full system access needed
-5. **Standardized**: Works across different AI agents without custom integration
-6. **Agent-ready**: Works out-of-the-box with existing models and agents (no retraining needed)
+- **Fully predictable control flow** — deterministic pipelines, not LLM-dependent orchestration
+- **Handles thousands of tool calls** — in a single request, reliably
+- **Streaming/iterator model** — process datasets larger than memory
+- **Sandboxed execution** — no system shell access needed
+- **Works out of the box** — agents already know Unix patterns, no retraining required
+- **Future-proof** — Unix shells are 50+ years old and still going strong
 
 ## Real-World Example
 
@@ -123,21 +126,24 @@ MCP_PORT=8081 MCP_HOST=0.0.0.0 python main.py
 
 ### Run with ToolHive
 
-You can run the server as a ToolHive workload and proxy it via HTTP:
+You can run the server as a ToolHive workload:
 
 ```bash
-# Run from the registry with HTTP proxying (recommended simple setup)
+# Linux (requires --network host)
 thv run model-context-shell --network host --foreground --transport streamable-http
+
+# macOS / Windows (Docker Desktop bridge works automatically)
+thv run model-context-shell --foreground --transport streamable-http
 ```
 
-- `--network host`: Exposes the server on the host network so ToolHive can reach `http://127.0.0.1:<MCP_PORT>` directly (no extra port mapping).
+Options:
+- `--network host`: Required on Linux only. Docker Desktop on macOS/Windows has a built-in bridge that handles container-to-host networking automatically.
 - `--foreground`: Keeps the process attached in your terminal.
-- `--transport streamable-http`: Matches the server’s default transport and exposes `/mcp`.
+- `--transport streamable-http`: Matches the server's default transport and exposes `/mcp`.
 
 Notes:
-- The server respects `MCP_PORT`/`MCP_HOST`. To override the port when running with ToolHive, pass env vars: `thv run model-context-shell -e MCP_PORT=8081 --network host --foreground --transport streamable-http`.
-- On Linux with `--network host`, set the ToolHive host explicitly: `-e TOOLHIVE_HOST=127.0.0.1`. On Docker Desktop (macOS/Windows), use `-e TOOLHIVE_HOST=host.docker.internal`.
-- Alternatively, you can use stdio transport: `thv run model-context-shell --foreground --transport stdio` (ToolHive will proxy it over SSE/HTTP).
+- To override the port: `thv run model-context-shell -e MCP_PORT=8081 --foreground --transport streamable-http`
+- Alternatively, use stdio transport: `thv run model-context-shell --foreground --transport stdio` (ToolHive will proxy it over SSE/HTTP).
 
 ### Available Tools
 
