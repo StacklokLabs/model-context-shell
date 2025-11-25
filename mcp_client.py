@@ -1,16 +1,18 @@
 import asyncio
-from typing import List, Dict, Any
+from typing import Any
+
 import httpx
 from mcp import ClientSession
-from mcp.client.streamable_http import streamablehttp_client
 from mcp.client.sse import sse_client
-
+from mcp.client.streamable_http import streamablehttp_client
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8080
 
 
-async def get_workloads(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> List[Dict[str, Any]]:
+async def get_workloads(
+    host: str = DEFAULT_HOST, port: int = DEFAULT_PORT
+) -> list[dict[str, Any]]:
     """
     Get list of workloads from ToolHive API.
 
@@ -46,7 +48,7 @@ async def get_workloads(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> L
         return workloads
 
 
-async def list_tools_from_server(workload: Dict[str, Any]) -> Dict[str, Any]:
+async def list_tools_from_server(workload: dict[str, Any]) -> dict[str, Any]:
     """List tools from a single MCP server workload"""
     name = workload.get("name", "unknown")
 
@@ -56,7 +58,7 @@ async def list_tools_from_server(workload: Dict[str, Any]) -> Dict[str, Any]:
         "list_available_shell_commands",
         "execute_pipeline",
         "list_all_tools",
-        "get_tool_details"
+        "get_tool_details",
     }
 
     try:
@@ -72,7 +74,7 @@ async def list_tools_from_server(workload: Dict[str, Any]) -> Dict[str, Any]:
                 "workload": name,
                 "status": "skipped",
                 "tools": [],
-                "error": f"Workload status is '{status}', not running"
+                "error": f"Workload status is '{status}', not running",
             }
 
         if not url:
@@ -80,7 +82,7 @@ async def list_tools_from_server(workload: Dict[str, Any]) -> Dict[str, Any]:
                 "workload": name,
                 "status": "error",
                 "tools": [],
-                "error": "No URL provided for workload"
+                "error": "No URL provided for workload",
             }
 
         # Determine which client to use based on proxy_mode or transport_type
@@ -92,10 +94,7 @@ async def list_tools_from_server(workload: Dict[str, Any]) -> Dict[str, Any]:
                     await session.initialize()
                     tools_response = await session.list_tools()
                     tools_info = [
-                        {
-                            "name": tool.name,
-                            "description": tool.description or ""
-                        }
+                        {"name": tool.name, "description": tool.description or ""}
                         for tool in tools_response.tools
                     ]
 
@@ -107,14 +106,14 @@ async def list_tools_from_server(workload: Dict[str, Any]) -> Dict[str, Any]:
                             "workload": name,
                             "status": "skipped",
                             "tools": [],
-                            "error": "Skipped: orchestrator workload (self)"
+                            "error": "Skipped: orchestrator workload (self)",
                         }
 
                     return {
                         "workload": name,
                         "status": "success",
                         "tools": tools_info,
-                        "error": None
+                        "error": None,
                     }
         elif proxy_mode == "streamable-http" or transport_type == "streamable-http":
             # Use streamable HTTP client
@@ -123,10 +122,7 @@ async def list_tools_from_server(workload: Dict[str, Any]) -> Dict[str, Any]:
                     await session.initialize()
                     tools_response = await session.list_tools()
                     tools_info = [
-                        {
-                            "name": tool.name,
-                            "description": tool.description or ""
-                        }
+                        {"name": tool.name, "description": tool.description or ""}
                         for tool in tools_response.tools
                     ]
 
@@ -138,44 +134,38 @@ async def list_tools_from_server(workload: Dict[str, Any]) -> Dict[str, Any]:
                             "workload": name,
                             "status": "skipped",
                             "tools": [],
-                            "error": "Skipped: orchestrator workload (self)"
+                            "error": "Skipped: orchestrator workload (self)",
                         }
 
                     return {
                         "workload": name,
                         "status": "success",
                         "tools": tools_info,
-                        "error": None
+                        "error": None,
                     }
         else:
             return {
                 "workload": name,
                 "status": "unsupported",
                 "tools": [],
-                "error": f"Transport/proxy mode '{proxy_mode or transport_type}' not yet supported"
+                "error": f"Transport/proxy mode '{proxy_mode or transport_type}' not yet supported",
             }
 
     except Exception as e:
         import traceback
+
         error_msg = f"{str(e)}\n{traceback.format_exc()}"
-        return {
-            "workload": name,
-            "status": "error",
-            "tools": [],
-            "error": error_msg
-        }
+        return {"workload": name, "status": "error", "tools": [], "error": error_msg}
 
 
 async def get_tool_details_from_server(
-    workload_name: str,
-    tool_name: str,
-    host: str = None,
-    port: int = None
-) -> Dict[str, Any]:
+    workload_name: str, tool_name: str, host: str = None, port: int = None
+) -> dict[str, Any]:
     """Get detailed information about a specific tool from a workload"""
     # Discover ToolHive if not already done
     if host is None or port is None:
         from toolhive_client import discover_toolhive
+
         host, port = discover_toolhive(host, port)
 
     # Get workload details
@@ -183,9 +173,7 @@ async def get_tool_details_from_server(
     workload = next((w for w in workloads if w.get("name") == workload_name), None)
 
     if not workload:
-        return {
-            "error": f"Workload '{workload_name}' not found"
-        }
+        return {"error": f"Workload '{workload_name}' not found"}
 
     try:
         transport_type = workload.get("transport_type", "")
@@ -201,36 +189,47 @@ async def get_tool_details_from_server(
                 async with ClientSession(read, write) as session:
                     await session.initialize()
                     tools_response = await session.list_tools()
-                    tool = next((t for t in tools_response.tools if t.name == tool_name), None)
+                    tool = next(
+                        (t for t in tools_response.tools if t.name == tool_name), None
+                    )
 
                     if not tool:
-                        return {"error": f"Tool '{tool_name}' not found in workload '{workload_name}'"}
+                        return {
+                            "error": f"Tool '{tool_name}' not found in workload '{workload_name}'"
+                        }
 
                     return {
                         "name": tool.name,
                         "description": tool.description or "",
-                        "inputSchema": tool.inputSchema
+                        "inputSchema": tool.inputSchema,
                     }
         elif proxy_mode == "streamable-http" or transport_type == "streamable-http":
             async with streamablehttp_client(url) as (read, write, get_session_id):
                 async with ClientSession(read, write) as session:
                     await session.initialize()
                     tools_response = await session.list_tools()
-                    tool = next((t for t in tools_response.tools if t.name == tool_name), None)
+                    tool = next(
+                        (t for t in tools_response.tools if t.name == tool_name), None
+                    )
 
                     if not tool:
-                        return {"error": f"Tool '{tool_name}' not found in workload '{workload_name}'"}
+                        return {
+                            "error": f"Tool '{tool_name}' not found in workload '{workload_name}'"
+                        }
 
                     return {
                         "name": tool.name,
                         "description": tool.description or "",
-                        "inputSchema": tool.inputSchema
+                        "inputSchema": tool.inputSchema,
                     }
         else:
-            return {"error": f"Transport/proxy mode '{proxy_mode or transport_type}' not supported"}
+            return {
+                "error": f"Transport/proxy mode '{proxy_mode or transport_type}' not supported"
+            }
 
     except Exception as e:
         import traceback
+
         return {
             "error": f"Failed to get tool details: {str(e)}\n{traceback.format_exc()}"
         }
@@ -239,9 +238,9 @@ async def get_tool_details_from_server(
 async def call_tool(
     workload_name: str,
     tool_name: str,
-    arguments: Dict[str, Any],
+    arguments: dict[str, Any],
     host: str = DEFAULT_HOST,
-    port: int = DEFAULT_PORT
+    port: int = DEFAULT_PORT,
 ) -> Any:
     """
     Call a tool from a specific MCP server workload.
@@ -253,6 +252,7 @@ async def call_tool(
     try:
         if host == DEFAULT_HOST and port == DEFAULT_PORT:
             from toolhive_client import discover_toolhive
+
             host, port = discover_toolhive(host=None, port=None)
     except Exception:
         # Fall back to provided/defaults if discovery fails
@@ -271,7 +271,9 @@ async def call_tool(
     transport_type = workload.get("transport_type", "")
 
     if status != "running":
-        raise RuntimeError(f"Workload '{workload_name}' is not running (status: {status})")
+        raise RuntimeError(
+            f"Workload '{workload_name}' is not running (status: {status})"
+        )
 
     if not url:
         raise ValueError(f"No URL provided for workload '{workload_name}'")
@@ -290,10 +292,14 @@ async def call_tool(
                 result = await session.call_tool(tool_name, arguments=arguments)
                 return result
     else:
-        raise ValueError(f"Transport/proxy mode '{proxy_mode or transport_type}' not supported")
+        raise ValueError(
+            f"Transport/proxy mode '{proxy_mode or transport_type}' not supported"
+        )
 
 
-async def list_tools(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> List[Dict[str, Any]]:
+async def list_tools(
+    host: str = DEFAULT_HOST, port: int = DEFAULT_PORT
+) -> list[dict[str, Any]]:
     """
     List tools from all MCP servers running through ToolHive.
 
@@ -318,12 +324,14 @@ async def list_tools(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> List
         processed_results = []
         for i, result in enumerate(results):
             if isinstance(result, Exception):
-                processed_results.append({
-                    "workload": workloads[i].get("name", f"workload_{i}"),
-                    "status": "error",
-                    "tools": [],
-                    "error": str(result)
-                })
+                processed_results.append(
+                    {
+                        "workload": workloads[i].get("name", f"workload_{i}"),
+                        "status": "error",
+                        "tools": [],
+                        "error": str(result),
+                    }
+                )
             else:
                 processed_results.append(result)
 
@@ -331,9 +339,11 @@ async def list_tools(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> List
 
     except Exception as e:
         # If we can't even get the workload list, return error
-        return [{
-            "workload": "toolhive",
-            "status": "error",
-            "tools": [],
-            "error": f"Failed to get workload list: {str(e)}"
-        }]
+        return [
+            {
+                "workload": "toolhive",
+                "status": "error",
+                "tools": [],
+                "error": f"Failed to get workload list: {str(e)}",
+            }
+        ]

@@ -1,9 +1,10 @@
-from fastmcp import FastMCP
-import toolhive_client
-import mcp_client
-from shell_engine import ShellEngine
 import os
 
+from fastmcp import FastMCP
+
+import mcp_client
+import toolhive_client
+from shell_engine import ShellEngine
 
 mcp = FastMCP(
     "model-context-shell",
@@ -15,7 +16,7 @@ mcp = FastMCP(
     the entire workflow in one pipeline and use jq/grep/sed to transform data between stages.
 
     Only inspect intermediate results to verify correctness, not to manually pass data around.
-    """
+    """,
 )
 
 
@@ -108,6 +109,7 @@ async def _list_all_tools_impl() -> str:
     # Discover ToolHive connection to avoid assuming default ports
     try:
         from toolhive_client import discover_toolhive
+
         host, port = discover_toolhive()
         tools_list = await mcp_client.list_tools(host=host, port=port)
     except Exception:
@@ -178,9 +180,11 @@ async def _get_tool_details_impl(server: str, tool_name: str) -> str:
 
     result = []
     result.append(f"Tool: {details.get('name', 'unknown')}")
-    result.append(f"\nDescription:\n{details.get('description', 'No description available')}")
-    result.append(f"\nInput Schema:")
-    result.append(json.dumps(details.get('inputSchema', {}), indent=2))
+    result.append(
+        f"\nDescription:\n{details.get('description', 'No description available')}"
+    )
+    result.append("\nInput Schema:")
+    result.append(json.dumps(details.get("inputSchema", {}), indent=2))
 
     return "\n".join(result)
 
@@ -202,9 +206,9 @@ async def get_tool_details(server: str, tool_name: str) -> str:
 
 
 if __name__ == "__main__":
-    import sys
     import os
     import shutil
+    import sys
 
     # Require bubblewrap (bwrap) for sandboxing child processes
     # Refuse to start the server if it's not available
@@ -226,14 +230,18 @@ if __name__ == "__main__":
     else:
         # Container mode: Skip ToolHive discovery during startup
         # Tools will be discovered dynamically when execute_pipeline is called
-        print("Running in container mode - ToolHive connection will be established on first tool use\n")
+        print(
+            "Running in container mode - ToolHive connection will be established on first tool use\n"
+        )
 
     # Run the MCP server with HTTP transport
     # Check if --transport argument is provided
     transport = "streamable-http"  # Default to streamable-http for HTTP access
     # Defaults; may be overridden by CLI or env
     port = 8000
-    host = "0.0.0.0" if in_container else "127.0.0.1"  # Bind to 0.0.0.0 in container for external access
+    host = (
+        "0.0.0.0" if in_container else "127.0.0.1"
+    )  # Bind to 0.0.0.0 in container for external access
 
     # CLI args take precedence over env
     for i, arg in enumerate(sys.argv):
@@ -251,7 +259,9 @@ if __name__ == "__main__":
             try:
                 port = int(mcp_port_env)
             except ValueError:
-                sys.stderr.write(f"Warning: MCP_PORT must be an integer, got '{mcp_port_env}'. Using default/CLI value {port}.\n")
+                sys.stderr.write(
+                    f"Warning: MCP_PORT must be an integer, got '{mcp_port_env}'. Using default/CLI value {port}.\n"
+                )
 
     if "--host" not in sys.argv:
         mcp_host_env = os.environ.get("MCP_HOST")

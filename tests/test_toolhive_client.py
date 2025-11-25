@@ -1,6 +1,7 @@
-import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
+
 import httpx
+
 import toolhive_client
 
 
@@ -38,7 +39,9 @@ class TestStopThvServe:
     def test_kills_process_on_timeout(self, mocker):
         """Test that stop_thv_serve kills process if terminate times out"""
         mock_process = MagicMock()
-        mock_process.wait.side_effect = toolhive_client.subprocess.TimeoutExpired("cmd", 5)
+        mock_process.wait.side_effect = toolhive_client.subprocess.TimeoutExpired(
+            "cmd", 5
+        )
         toolhive_client.thv_process = mock_process
 
         toolhive_client.stop_thv_serve()
@@ -74,7 +77,9 @@ class TestListWorkloads:
     def test_api_call_failure(self, mocker):
         """Test API call failure handling"""
         mock_client = MagicMock()
-        mock_client.__enter__.return_value.get.side_effect = httpx.HTTPError("Connection failed")
+        mock_client.__enter__.return_value.get.side_effect = httpx.HTTPError(
+            "Connection failed"
+        )
         mocker.patch("httpx.Client", return_value=mock_client)
 
         result = toolhive_client.list_workloads()
@@ -107,7 +112,7 @@ class TestInitialize:
         mock_list.return_value = {
             "success": True,
             "endpoint": "/api/v1beta/workloads",
-            "data": []
+            "data": [],
         }
         # Mock mcp_client.list_tools to prevent coroutine creation
         mocker.patch("mcp_client.list_tools", return_value=[])
@@ -125,10 +130,7 @@ class TestInitialize:
         mocker.patch("atexit.register")
         mocker.patch("toolhive_client.start_thv_serve")
         mock_list = mocker.patch("toolhive_client.list_workloads")
-        mock_list.return_value = {
-            "success": False,
-            "error": "Connection refused"
-        }
+        mock_list.return_value = {"success": False, "error": "Connection refused"}
         # Mock mcp_client.list_tools to prevent coroutine creation
         mocker.patch("mcp_client.list_tools", return_value=[])
         mocker.patch("asyncio.run", return_value=[])

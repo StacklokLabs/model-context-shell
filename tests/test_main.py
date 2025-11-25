@@ -1,6 +1,6 @@
 import pytest
-from unittest.mock import AsyncMock, patch
-from main import _list_all_tools_impl, _get_tool_details_impl
+
+from main import _get_tool_details_impl, _list_all_tools_impl
 
 
 @pytest.mark.asyncio
@@ -13,9 +13,9 @@ class TestListAllTools:
                 "status": "success",
                 "tools": [
                     {"name": "tool1", "description": "A simple tool"},
-                    {"name": "tool2", "description": "Another tool"}
+                    {"name": "tool2", "description": "Another tool"},
                 ],
-                "error": None
+                "error": None,
             }
         ]
 
@@ -35,10 +35,8 @@ class TestListAllTools:
             {
                 "workload": "test-server",
                 "status": "success",
-                "tools": [
-                    {"name": "tool1", "description": long_description}
-                ],
-                "error": None
+                "tools": [{"name": "tool1", "description": long_description}],
+                "error": None,
             }
         ]
 
@@ -58,10 +56,8 @@ class TestListAllTools:
             {
                 "workload": "test-server",
                 "status": "success",
-                "tools": [
-                    {"name": "tool1", "description": description_with_newlines}
-                ],
-                "error": None
+                "tools": [{"name": "tool1", "description": description_with_newlines}],
+                "error": None,
             }
         ]
 
@@ -72,7 +68,9 @@ class TestListAllTools:
         # Newlines should be replaced with spaces (note: \r\n becomes two spaces)
         assert "Line 1 Line 2  Line 3" in result
         # Check that the description itself doesn't contain literal \n or \r characters
-        description_part = result.split("tool1:")[1].split("\n")[0] if "tool1:" in result else ""
+        description_part = (
+            result.split("tool1:")[1].split("\n")[0] if "tool1:" in result else ""
+        )
         assert "\n" not in description_part and "\r" not in description_part
 
     async def test_list_all_tools_handles_empty_description(self, mocker):
@@ -83,9 +81,9 @@ class TestListAllTools:
                 "status": "success",
                 "tools": [
                     {"name": "tool1", "description": ""},
-                    {"name": "tool2", "description": None}
+                    {"name": "tool2", "description": None},
                 ],
-                "error": None
+                "error": None,
             }
         ]
 
@@ -104,7 +102,7 @@ class TestListAllTools:
                 "workload": "test-server",
                 "status": "success",
                 "tools": ["tool1", "tool2"],  # Old format: just names
-                "error": None
+                "error": None,
             }
         ]
 
@@ -130,7 +128,7 @@ class TestListAllTools:
                 "workload": "test-server",
                 "status": "error",
                 "tools": [],
-                "error": "Connection timeout"
+                "error": "Connection timeout",
             }
         ]
 
@@ -148,20 +146,20 @@ class TestListAllTools:
                 "workload": "fetch",
                 "status": "success",
                 "tools": [{"name": "fetch", "description": "Fetches URLs"}],
-                "error": None
+                "error": None,
             },
             {
                 "workload": "model-context-shell",
                 "status": "skipped",
                 "tools": [],
-                "error": "Skipped: orchestrator workload (self)"
+                "error": "Skipped: orchestrator workload (self)",
             },
             {
                 "workload": "database",
                 "status": "success",
                 "tools": [{"name": "query", "description": "Queries database"}],
-                "error": None
-            }
+                "error": None,
+            },
         ]
 
         mocker.patch("mcp_client.list_tools", return_value=mock_tools)
@@ -188,12 +186,14 @@ class TestGetToolDetails:
                 "type": "object",
                 "properties": {
                     "param1": {"type": "string"},
-                    "param2": {"type": "number"}
-                }
-            }
+                    "param2": {"type": "number"},
+                },
+            },
         }
 
-        mocker.patch("mcp_client.get_tool_details_from_server", return_value=mock_details)
+        mocker.patch(
+            "mcp_client.get_tool_details_from_server", return_value=mock_details
+        )
 
         result = await _get_tool_details_impl("test-server", "test_tool")
 
@@ -204,11 +204,11 @@ class TestGetToolDetails:
 
     async def test_get_tool_details_with_error(self, mocker):
         """Test tool details when error occurs"""
-        mock_details = {
-            "error": "Tool not found"
-        }
+        mock_details = {"error": "Tool not found"}
 
-        mocker.patch("mcp_client.get_tool_details_from_server", return_value=mock_details)
+        mocker.patch(
+            "mcp_client.get_tool_details_from_server", return_value=mock_details
+        )
 
         result = await _get_tool_details_impl("test-server", "nonexistent")
 
@@ -224,11 +224,13 @@ class TestGetToolDetails:
                 "required": ["url"],
                 "properties": {
                     "url": {"type": "string", "description": "The URL to fetch"}
-                }
-            }
+                },
+            },
         }
 
-        mocker.patch("mcp_client.get_tool_details_from_server", return_value=mock_details)
+        mocker.patch(
+            "mcp_client.get_tool_details_from_server", return_value=mock_details
+        )
 
         result = await _get_tool_details_impl("test-server", "test_tool")
 
@@ -243,10 +245,12 @@ class TestGetToolDetails:
         mock_details = {
             "name": "test_tool",
             "description": None,
-            "inputSchema": {"type": "object"}
+            "inputSchema": {"type": "object"},
         }
 
-        mocker.patch("mcp_client.get_tool_details_from_server", return_value=mock_details)
+        mocker.patch(
+            "mcp_client.get_tool_details_from_server", return_value=mock_details
+        )
 
         result = await _get_tool_details_impl("test-server", "test_tool")
 
