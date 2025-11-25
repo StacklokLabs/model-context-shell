@@ -88,6 +88,11 @@ class ShellEngine:
             "--unshare-all",
             "--new-session",
             "--die-with-parent",
+            "--dir",
+            "/",
+            "--chmod",
+            "0555",
+            "/",
             "--proc",
             "/proc",
             "--dev",
@@ -98,7 +103,7 @@ class ShellEngine:
             "PATH",
             "/usr/bin:/bin",
             "--chdir",
-            "/",
+            "/tmp",
         ]
 
         # Read-only bind common system locations needed for typical dynamic binaries

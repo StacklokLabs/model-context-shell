@@ -56,7 +56,9 @@ async def test_tmp_is_writable_tmpfs_and_readable_within_command():
 async def test_root_is_read_only_cannot_create_files():
     engine = await _new_engine()
 
-    # Attempt to write to /. If it were writable, we'd read back content; expect none.
+    # Attempt to write to /. If it were writable, we'd read back content.
+    # With proper sandboxing, awk will either fail to write (permission denied)
+    # or print NOPE. Either way, WROTE should not appear.
     prog = (
         'BEGIN { f = "/mcpshell_should_fail"; '
         'print "x" > f; close(f); '
@@ -67,7 +69,7 @@ async def test_root_is_read_only_cannot_create_files():
     pipeline = [{"type": "command", "command": "awk", "args": [prog]}]
 
     out = await engine.execute_pipeline(pipeline)
-    assert "NOPE" in out
+    assert "WROTE" not in out
 
 
 @pytest.mark.asyncio
@@ -84,4 +86,4 @@ async def test_usr_is_read_only_cannot_create_files():
     pipeline = [{"type": "command", "command": "awk", "args": [prog]}]
 
     out = await engine.execute_pipeline(pipeline)
-    assert "NOPE" in out
+    assert "WROTE" not in out
