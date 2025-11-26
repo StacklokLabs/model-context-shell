@@ -13,6 +13,7 @@ dependencies = [
 dev = [
     "pytest>=8.4.2",
     "pytest-asyncio>=1.2.0",
+    "pytest-cov>=7.0.0",
     "pytest-mock>=3.15.1",
     "pytest-timeout>=2.3.1",
     "ruff>=0.14.6",
@@ -37,3 +38,11 @@ ignore = [
 
 [tool.ruff.format]
 quote-style = "double"
+
+[tool.coverage.run]
+source = ["main", "shell_engine", "mcp_client", "toolhive_client"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false

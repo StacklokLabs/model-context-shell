@@ -24,4 +24,4 @@ jobs:
       - name: Install bubblewrap
         run: sudo apt-get update && sudo apt-get install -y bubblewrap
       - run: uv sync --dev
-      - run: uv run pytest
+      - run: uv run pytest --cov --cov-report=term-missing

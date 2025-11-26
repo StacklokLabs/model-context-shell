@@ -145,6 +145,21 @@ class TestShellStage:
         assert "apricot" in output
         assert "banana" not in output
 
+    async def test_shell_stage_for_each_without_trailing_newline(self):
+        """Test shell command with for_each when input lacks trailing newline."""
+        mock_caller = AsyncMock()
+        engine = ShellEngine(tool_caller=mock_caller)
+
+        # Input without trailing newline - last line should still be processed
+        upstream = iter(["apple\nbanana\napricot"])
+        result = list(engine.shell_stage("grep", ["^a"], upstream, for_each=True))
+
+        output = "".join(result)
+        # All lines starting with 'a' should be processed, including 'apricot'
+        assert "apple" in output
+        assert "apricot" in output
+        assert "banana" not in output
+
     async def test_shell_stage_empty_input(self):
         """Test shell command with empty input."""
         mock_caller = AsyncMock()
@@ -263,6 +278,72 @@ class TestToolStage:
 
         assert result == "plain string result"
 
+    async def test_tool_stage_for_each_without_trailing_newline(self):
+        """Test tool call with for_each when input doesn't have trailing newline."""
+        mock_caller = AsyncMock(return_value=MockToolResult("result"))
+        engine = ShellEngine(tool_caller=mock_caller)
+
+        # Input without trailing newline - should still process the last line
+        jsonl_input = '{"url": "http://example.com/1"}\n{"url": "http://example.com/2"}'
+        upstream = iter([jsonl_input])
+
+        result = await engine.tool_stage(
+            "test_server", "fetch", {}, upstream, for_each=True
+        )
+
+        # Should be called twice (once per line, including line without newline)
+        assert mock_caller.call_count == 2
+        assert "result" in result
+
+    async def test_tool_stage_non_dict_json_upstream(self):
+        """Test tool_stage with non-dict JSON upstream (array) in non-for_each mode."""
+        mock_caller = AsyncMock(return_value=MockToolResult("result"))
+        engine = ShellEngine(tool_caller=mock_caller)
+
+        # JSON array as upstream
+        array_input = '["item1", "item2", "item3"]'
+        upstream = iter([array_input])
+
+        await engine.tool_stage("test_server", "test_tool", {}, upstream)
+
+        # Should add array as 'input' field
+        mock_caller.assert_called_once()
+        call_args = mock_caller.call_args[0][2]
+        assert call_args["input"] == ["item1", "item2", "item3"]
+
+    async def test_tool_stage_plain_text_upstream(self):
+        """Test tool_stage with plain text (non-JSON) upstream."""
+        mock_caller = AsyncMock(return_value=MockToolResult("result"))
+        engine = ShellEngine(tool_caller=mock_caller)
+
+        # Plain text that isn't valid JSON
+        text_input = "some plain text data"
+        upstream = iter([text_input])
+
+        await engine.tool_stage("test_server", "test_tool", {}, upstream)
+
+        # Should add text as 'input' field
+        mock_caller.assert_called_once()
+        call_args = mock_caller.call_args[0][2]
+        assert call_args["input"] == "some plain text data"
+
+    async def test_tool_stage_non_dict_json_does_not_override_existing_input(self):
+        """Test that non-dict JSON doesn't override explicit 'input' arg."""
+        mock_caller = AsyncMock(return_value=MockToolResult("result"))
+        engine = ShellEngine(tool_caller=mock_caller)
+
+        array_input = '["upstream_data"]'
+        upstream = iter([array_input])
+
+        await engine.tool_stage(
+            "test_server", "test_tool", {"input": "explicit_input"}, upstream
+        )
+
+        # Explicit input should be preserved
+        mock_caller.assert_called_once()
+        call_args = mock_caller.call_args[0][2]
+        assert call_args["input"] == "explicit_input"
+
 
 @pytest.mark.asyncio
 class TestExecutePipeline:
@@ -343,10 +424,10 @@ class TestExecutePipeline:
 
         pipeline = [{"type": "command", "command": "rm", "args": ["-rf", "/"]}]
 
-        result = await engine.execute_pipeline(pipeline)
-
-        assert "Pipeline execution failed" in result
-        assert "not allowed" in result
+        with pytest.raises(
+            RuntimeError, match="Pipeline execution failed.*not allowed"
+        ):
+            await engine.execute_pipeline(pipeline)
 
     async def test_execute_pipeline_missing_command_field(self):
         """Test pipeline with missing command field."""
@@ -357,23 +438,36 @@ class TestExecutePipeline:
             {"type": "command", "args": ["test"]}  # Missing "command" field
         ]
 
-        result = await engine.execute_pipeline(pipeline)
+        with pytest.raises(
+            RuntimeError, match="Pipeline execution failed.*missing 'command' field"
+        ):
+            await engine.execute_pipeline(pipeline)
 
-        assert "Pipeline execution failed" in result
-        assert "missing 'command' field" in result
-
-    async def test_execute_pipeline_missing_tool_fields(self):
-        """Test pipeline with missing tool fields."""
+    async def test_execute_pipeline_missing_tool_name_field(self):
+        """Test pipeline with missing tool name field."""
         mock_caller = AsyncMock()
         engine = ShellEngine(tool_caller=mock_caller)
 
         # Missing "name" field
         pipeline = [{"type": "tool", "server": "test_server", "args": {}}]
 
-        result = await engine.execute_pipeline(pipeline)
+        with pytest.raises(
+            RuntimeError, match="Pipeline execution failed.*missing 'name' field"
+        ):
+            await engine.execute_pipeline(pipeline)
 
-        assert "Pipeline execution failed" in result
-        assert "missing 'name' field" in result
+    async def test_execute_pipeline_missing_tool_server_field(self):
+        """Test pipeline with missing tool server field."""
+        mock_caller = AsyncMock()
+        engine = ShellEngine(tool_caller=mock_caller)
+
+        # Missing "server" field
+        pipeline = [{"type": "tool", "name": "test_tool", "args": {}}]
+
+        with pytest.raises(
+            RuntimeError, match="Pipeline execution failed.*missing 'server' field"
+        ):
+            await engine.execute_pipeline(pipeline)
 
     async def test_execute_pipeline_invalid_args_type(self):
         """Test pipeline with invalid args type (not a list)."""
@@ -382,10 +476,10 @@ class TestExecutePipeline:
 
         pipeline = [{"type": "command", "command": "grep", "args": "not-a-list"}]
 
-        result = await engine.execute_pipeline(pipeline)
-
-        assert "Pipeline execution failed" in result
-        assert "must be an array" in result
+        with pytest.raises(
+            RuntimeError, match="Pipeline execution failed.*must be an array"
+        ):
+            await engine.execute_pipeline(pipeline)
 
     async def test_execute_pipeline_unknown_stage_type(self):
         """Test pipeline with unknown stage type."""
@@ -394,10 +488,10 @@ class TestExecutePipeline:
 
         pipeline = [{"type": "unknown_type", "data": "test"}]
 
-        result = await engine.execute_pipeline(pipeline)
-
-        assert "Pipeline execution failed" in result
-        assert "Unknown pipeline item type" in result
+        with pytest.raises(
+            RuntimeError, match="Pipeline execution failed.*Unknown pipeline item type"
+        ):
+            await engine.execute_pipeline(pipeline)
 
     async def test_execute_pipeline_empty_pipeline(self):
         """Test pipeline with no stages returns empty string."""
@@ -454,10 +548,10 @@ class TestErrorHandling:
 
         pipeline = [{"type": "tool", "name": "test", "server": "test", "args": {}}]
 
-        result = await engine.execute_pipeline(pipeline)
-
-        assert "Pipeline execution failed" in result
-        assert "Tool call failed" in result
+        with pytest.raises(
+            RuntimeError, match="Pipeline execution failed.*Tool call failed"
+        ):
+            await engine.execute_pipeline(pipeline)
 
     async def test_stage_error_includes_stage_number(self):
         """Test that errors include the stage number."""
@@ -474,10 +568,8 @@ class TestErrorHandling:
             {"type": "command", "command": "grep", "args": ["never reached"]},
         ]
 
-        result = await engine.execute_pipeline(pipeline)
-
-        assert "Pipeline execution failed" in result
-        assert "Stage 2" in result
+        with pytest.raises(RuntimeError, match="Pipeline execution failed.*Stage 2"):
+            await engine.execute_pipeline(pipeline)
 
 
 @pytest.mark.asyncio
@@ -546,11 +638,10 @@ class TestShellCommandTimeouts:
         ]
 
         start = time.time()
-        result = await engine.execute_pipeline(pipeline)
+        with pytest.raises(RuntimeError, match="Pipeline execution failed.*timed out"):
+            await engine.execute_pipeline(pipeline)
         elapsed = time.time() - start
 
-        # Should fail with timeout error
-        assert "timeout" in result.lower() or "timed out" in result.lower()
         assert elapsed < 0.5, f"Timeout took too long: {elapsed} seconds"
 
     @pytest.mark.timeout(2)
@@ -572,7 +663,8 @@ class TestShellCommandTimeouts:
         ]
 
         start = time.time()
-        await engine.execute_pipeline(pipeline)
+        with pytest.raises(RuntimeError, match="Pipeline execution failed.*timed out"):
+            await engine.execute_pipeline(pipeline)
         elapsed = time.time() - start
 
         # Should timeout quickly, not wait 20 seconds (10s × 2 lines)

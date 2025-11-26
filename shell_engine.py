@@ -476,7 +476,6 @@ class ShellEngine:
             return output
 
         except Exception as e:
-            import traceback
-
-            error_details = f"Pipeline execution failed: {str(e)}\n\nTraceback:\n{traceback.format_exc()}"
-            return error_details
+            # Re-raise so MCP layer sets isError=True in the response
+            # This ensures clients properly display/handle the error
+            raise RuntimeError(f"Pipeline execution failed: {str(e)}") from e
