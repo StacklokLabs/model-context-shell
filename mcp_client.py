@@ -117,7 +117,7 @@ async def list_tools_from_server(workload: dict[str, Any]) -> dict[str, Any]:
                     }
         elif proxy_mode == "streamable-http" or transport_type == "streamable-http":
             # Use streamable HTTP client
-            async with streamablehttp_client(url) as (read, write, get_session_id):
+            async with streamablehttp_client(url) as (read, write, _):
                 async with ClientSession(read, write) as session:
                     await session.initialize()
                     tools_response = await session.list_tools()
@@ -204,7 +204,7 @@ async def get_tool_details_from_server(
                         "inputSchema": tool.inputSchema,
                     }
         elif proxy_mode == "streamable-http" or transport_type == "streamable-http":
-            async with streamablehttp_client(url) as (read, write, get_session_id):
+            async with streamablehttp_client(url) as (read, write, _):
                 async with ClientSession(read, write) as session:
                     await session.initialize()
                     tools_response = await session.list_tools()
@@ -286,7 +286,7 @@ async def call_tool(
                 result = await session.call_tool(tool_name, arguments=arguments)
                 return result
     elif proxy_mode == "streamable-http" or transport_type == "streamable-http":
-        async with streamablehttp_client(url) as (read, write, get_session_id):
+        async with streamablehttp_client(url) as (read, write, _):
             async with ClientSession(read, write) as session:
                 await session.initialize()
                 result = await session.call_tool(tool_name, arguments=arguments)

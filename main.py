@@ -1,5 +1,3 @@
-import os
-
 from fastmcp import FastMCP
 
 import mcp_client
