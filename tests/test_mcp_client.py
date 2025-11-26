@@ -510,6 +510,244 @@ class TestGetToolDetails:
 
 
 @pytest.mark.asyncio
+class TestCallTool:
+    """Test the call_tool function"""
+
+    async def test_call_tool_success_streamable_http(self, mocker):
+        """Test successful tool call via streamable-http"""
+        workload = {
+            "name": "test-server",
+            "status": "running",
+            "transport_type": "streamable-http",
+            "url": "http://localhost:8080/mcp",
+        }
+
+        mocker.patch("mcp_client.get_workloads", return_value=[workload])
+        mocker.patch(
+            "toolhive_client.discover_toolhive", return_value=("localhost", 8080)
+        )
+
+        # Mock the MCP client
+        mock_result = MagicMock()
+        mock_result.content = [MagicMock(text="tool result")]
+
+        mock_session = MagicMock()
+        mock_session.initialize = AsyncMock()
+        mock_session.call_tool = AsyncMock(return_value=mock_result)
+
+        mock_client_session = MagicMock()
+        mock_client_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_client_session.__aexit__ = AsyncMock()
+
+        mock_http = MagicMock()
+        mock_http.__aenter__ = AsyncMock(return_value=("read", "write", lambda: None))
+        mock_http.__aexit__ = AsyncMock()
+
+        mocker.patch("mcp_client.streamablehttp_client", return_value=mock_http)
+        mocker.patch("mcp_client.ClientSession", return_value=mock_client_session)
+
+        result = await mcp_client.call_tool(
+            "test-server", "test_tool", {"param": "value"}
+        )
+
+        assert result == mock_result
+        mock_session.call_tool.assert_called_once_with(
+            "test_tool", arguments={"param": "value"}
+        )
+
+    async def test_call_tool_success_sse(self, mocker):
+        """Test successful tool call via SSE"""
+        workload = {
+            "name": "test-server",
+            "status": "running",
+            "proxy_mode": "sse",
+            "url": "http://localhost:8080/sse",
+        }
+
+        mocker.patch("mcp_client.get_workloads", return_value=[workload])
+        mocker.patch(
+            "toolhive_client.discover_toolhive", return_value=("localhost", 8080)
+        )
+
+        mock_result = MagicMock()
+
+        mock_session = MagicMock()
+        mock_session.initialize = AsyncMock()
+        mock_session.call_tool = AsyncMock(return_value=mock_result)
+
+        mock_client_session = MagicMock()
+        mock_client_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_client_session.__aexit__ = AsyncMock()
+
+        mock_sse = MagicMock()
+        mock_sse.__aenter__ = AsyncMock(return_value=("read", "write"))
+        mock_sse.__aexit__ = AsyncMock()
+
+        mocker.patch("mcp_client.sse_client", return_value=mock_sse)
+        mocker.patch("mcp_client.ClientSession", return_value=mock_client_session)
+
+        result = await mcp_client.call_tool(
+            "test-server", "test_tool", {"param": "value"}
+        )
+
+        assert result == mock_result
+
+    async def test_call_tool_workload_not_found(self, mocker):
+        """Test call_tool when workload doesn't exist"""
+        mocker.patch("mcp_client.get_workloads", return_value=[])
+        mocker.patch(
+            "toolhive_client.discover_toolhive", return_value=("localhost", 8080)
+        )
+
+        with pytest.raises(ValueError, match="not found"):
+            await mcp_client.call_tool("nonexistent", "test_tool", {})
+
+    async def test_call_tool_workload_not_running(self, mocker):
+        """Test call_tool when workload is not running"""
+        workload = {
+            "name": "test-server",
+            "status": "stopped",
+            "transport_type": "streamable-http",
+            "url": "http://localhost:8080/mcp",
+        }
+
+        mocker.patch("mcp_client.get_workloads", return_value=[workload])
+        mocker.patch(
+            "toolhive_client.discover_toolhive", return_value=("localhost", 8080)
+        )
+
+        with pytest.raises(RuntimeError, match="not running"):
+            await mcp_client.call_tool("test-server", "test_tool", {})
+
+    async def test_call_tool_no_url(self, mocker):
+        """Test call_tool when workload has no URL"""
+        workload = {
+            "name": "test-server",
+            "status": "running",
+            "transport_type": "streamable-http",
+            "url": "",
+        }
+
+        mocker.patch("mcp_client.get_workloads", return_value=[workload])
+        mocker.patch(
+            "toolhive_client.discover_toolhive", return_value=("localhost", 8080)
+        )
+
+        with pytest.raises(ValueError, match="No URL"):
+            await mcp_client.call_tool("test-server", "test_tool", {})
+
+    async def test_call_tool_unsupported_transport(self, mocker):
+        """Test call_tool with unsupported transport"""
+        workload = {
+            "name": "test-server",
+            "status": "running",
+            "transport_type": "stdio",
+            "url": "http://localhost:8080/mcp",
+        }
+
+        mocker.patch("mcp_client.get_workloads", return_value=[workload])
+        mocker.patch(
+            "toolhive_client.discover_toolhive", return_value=("localhost", 8080)
+        )
+
+        with pytest.raises(ValueError, match="not supported"):
+            await mcp_client.call_tool("test-server", "test_tool", {})
+
+    async def test_call_tool_discovery_fallback(self, mocker):
+        """Test call_tool falls back to defaults when discovery fails"""
+        workload = {
+            "name": "test-server",
+            "status": "running",
+            "transport_type": "streamable-http",
+            "url": "http://localhost:8080/mcp",
+        }
+
+        mock_get_workloads = mocker.patch(
+            "mcp_client.get_workloads", return_value=[workload]
+        )
+        mocker.patch(
+            "toolhive_client.discover_toolhive",
+            side_effect=Exception("Discovery failed"),
+        )
+
+        mock_result = MagicMock()
+        mock_session = MagicMock()
+        mock_session.initialize = AsyncMock()
+        mock_session.call_tool = AsyncMock(return_value=mock_result)
+
+        mock_client_session = MagicMock()
+        mock_client_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_client_session.__aexit__ = AsyncMock()
+
+        mock_http = MagicMock()
+        mock_http.__aenter__ = AsyncMock(return_value=("read", "write", lambda: None))
+        mock_http.__aexit__ = AsyncMock()
+
+        mocker.patch("mcp_client.streamablehttp_client", return_value=mock_http)
+        mocker.patch("mcp_client.ClientSession", return_value=mock_client_session)
+
+        # Should not raise, should fall back to defaults
+        result = await mcp_client.call_tool("test-server", "test_tool", {})
+
+        assert result == mock_result
+        # Should have been called with default host/port
+        mock_get_workloads.assert_called_once_with("127.0.0.1", 8080)
+
+
+@pytest.mark.asyncio
+class TestGetWorkloadsUrlRewriting:
+    """Test localhost URL rewriting for container networking"""
+
+    async def test_rewrites_localhost_urls(self, mocker):
+        """Test that localhost URLs are rewritten to use the actual host"""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "workloads": [
+                {
+                    "name": "workload1",
+                    "url": "http://localhost:9000/mcp",
+                },
+                {
+                    "name": "workload2",
+                    "url": "http://127.0.0.1:9001/sse",
+                },
+            ]
+        }
+
+        mock_client = MagicMock()
+        mock_client.__aenter__.return_value.get = AsyncMock(return_value=mock_response)
+        mocker.patch("httpx.AsyncClient", return_value=mock_client)
+
+        # Call with a different host (simulating container environment)
+        result = await mcp_client.get_workloads(host="192.168.1.100", port=8080)
+
+        # URLs should be rewritten
+        assert result[0]["url"] == "http://192.168.1.100:9000/mcp"
+        assert result[1]["url"] == "http://192.168.1.100:9001/sse"
+
+    async def test_preserves_non_localhost_urls(self, mocker):
+        """Test that non-localhost URLs are not rewritten"""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "workloads": [
+                {
+                    "name": "workload1",
+                    "url": "http://some-service:9000/mcp",
+                },
+            ]
+        }
+
+        mock_client = MagicMock()
+        mock_client.__aenter__.return_value.get = AsyncMock(return_value=mock_response)
+        mocker.patch("httpx.AsyncClient", return_value=mock_client)
+
+        result = await mcp_client.get_workloads(host="192.168.1.100", port=8080)
+
+        # URL should not be rewritten
+        assert result[0]["url"] == "http://some-service:9000/mcp"
+
+
+@pytest.mark.asyncio
 class TestSelfFiltering:
     """Test that mcp-shell filters itself out from tool listings"""
 
