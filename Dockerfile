@@ -28,6 +28,10 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 WORKDIR /app
 RUN chown app:app /app
 
+# Create cache directories for uv and puccinialin (needed for arm64 builds of headson)
+RUN mkdir -p /home/app/.cache/uv /home/app/.cache/puccinialin && \
+    chown -R app:app /home/app/.cache
+
 # Switch to non-root user
 USER app
 
@@ -36,7 +40,9 @@ COPY --chown=app:app pyproject.toml uv.lock* ./
 COPY --chown=app:app README.md ./
 
 # Install dependencies using uv
+# Mount both uv cache and puccinialin cache (for Rust builds on arm64)
 RUN --mount=type=cache,target=/home/app/.cache/uv,uid=1000,gid=1000 \
+    --mount=type=cache,target=/home/app/.cache/puccinialin,uid=1000,gid=1000 \
     uv sync --no-dev --locked
 
 # Copy application code

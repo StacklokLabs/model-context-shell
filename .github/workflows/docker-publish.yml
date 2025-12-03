@@ -38,7 +38,8 @@ jobs:
         with:
           context: .
           push: true
-          platforms: linux/amd64,linux/arm64
+          # Note: arm64 disabled until headson publishes arm64 wheels
+          platforms: linux/amd64
           tags: |
             ghcr.io/${{ steps.repo.outputs.name }}:latest
             ghcr.io/${{ steps.repo.outputs.name }}:${{ github.ref_name }}
