@@ -13,6 +13,8 @@ from collections.abc import Awaitable, Callable, Generator, Iterable
 from pathlib import Path
 from typing import Any
 
+import headson
+
 
 def _running_in_container() -> bool:
     """Detect if we're running inside a container (Docker, Podman, etc.).
@@ -552,6 +554,44 @@ class ShellEngine:
                     except Exception as e:
                         raise RuntimeError(
                             f"Stage {idx + 1} (tool {server_name}/{tool_name}) failed: {str(e)}"
+                        )
+
+                elif item_type == "preview":
+                    # Preview stage: summarize upstream data for the agent to inspect
+                    # Uses headson to create a structure-aware preview within a char budget
+                    # Output is NOT valid JSON - it uses pseudo-format with /* N more */ markers
+                    chars = item.get("chars", 3000)
+
+                    if not isinstance(chars, int) or chars <= 0:
+                        raise ValueError(
+                            f"Preview 'chars' must be a positive integer, got {chars}"
+                        )
+
+                    try:
+                        # Collect upstream data
+                        input_data = "".join(upstream)
+
+                        # Generate preview using headson with detailed style
+                        # detailed style shows /* N more */ markers so agent knows data was truncated
+                        preview = headson.summarize(
+                            input_data,
+                            format="json",
+                            style="detailed",
+                            input_format="json",
+                            byte_budget=chars,  # headson uses byte_budget param
+                        )
+
+                        # Add clear marker that this is a preview, not real data
+                        preview_output = (
+                            "=== PREVIEW (not valid JSON, showing structure only) ===\n"
+                            f"{preview}\n"
+                            "=== END PREVIEW ===\n"
+                        )
+
+                        upstream = iter([preview_output])
+                    except Exception as e:
+                        raise RuntimeError(
+                            f"Stage {idx + 1} (preview) failed: {str(e)}"
                         )
 
                 else:

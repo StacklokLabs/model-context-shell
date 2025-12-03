@@ -535,6 +535,92 @@ class TestExecutePipeline:
 
 
 @pytest.mark.asyncio
+class TestPreviewStage:
+    """Test preview stage functionality."""
+
+    async def test_preview_stage_basic(self):
+        """Test that preview stage summarizes JSON data."""
+        large_data = json.dumps({"items": [{"id": i, "name": f"Item {i}"} for i in range(100)]})
+        mock_caller = AsyncMock(return_value=MockToolResult(large_data))
+        engine = ShellEngine(tool_caller=mock_caller)
+
+        pipeline = [
+            {"type": "tool", "name": "get_data", "server": "test", "args": {}},
+            {"type": "preview", "chars": 500},
+        ]
+
+        result = await engine.execute_pipeline(pipeline)
+
+        # Should contain preview markers
+        assert "=== PREVIEW" in result
+        assert "not valid JSON" in result
+        assert "=== END PREVIEW ===" in result
+        # Should show structure but be truncated
+        assert "items" in result
+        # The output should be smaller than the input
+        assert len(result) < len(large_data)
+
+    async def test_preview_stage_shows_omission_markers(self):
+        """Test that preview shows /* N more */ markers for truncated data."""
+        large_array = json.dumps(list(range(1000)))
+        mock_caller = AsyncMock(return_value=MockToolResult(large_array))
+        engine = ShellEngine(tool_caller=mock_caller)
+
+        pipeline = [
+            {"type": "tool", "name": "get_data", "server": "test", "args": {}},
+            {"type": "preview", "chars": 200},
+        ]
+
+        result = await engine.execute_pipeline(pipeline)
+
+        # detailed style should show omission counts
+        assert "more" in result.lower()
+
+    async def test_preview_stage_default_chars(self):
+        """Test that preview stage uses default 3000 chars when not specified."""
+        mock_caller = AsyncMock(return_value=MockToolResult('{"test": "data"}'))
+        engine = ShellEngine(tool_caller=mock_caller)
+
+        pipeline = [
+            {"type": "tool", "name": "get_data", "server": "test", "args": {}},
+            {"type": "preview"},  # No chars specified
+        ]
+
+        # Should not raise, uses default
+        result = await engine.execute_pipeline(pipeline)
+        assert "=== PREVIEW" in result
+
+    async def test_preview_stage_invalid_chars(self):
+        """Test that preview stage rejects invalid chars parameter."""
+        mock_caller = AsyncMock(return_value=MockToolResult('{"test": "data"}'))
+        engine = ShellEngine(tool_caller=mock_caller)
+
+        pipeline = [
+            {"type": "tool", "name": "get_data", "server": "test", "args": {}},
+            {"type": "preview", "chars": -100},
+        ]
+
+        with pytest.raises(RuntimeError, match="chars.*must be a positive integer"):
+            await engine.execute_pipeline(pipeline)
+
+    async def test_preview_stage_in_middle_of_pipeline(self):
+        """Test that preview can be used mid-pipeline (though output won't be valid JSON)."""
+        mock_caller = AsyncMock(return_value=MockToolResult('{"value": 42}'))
+        engine = ShellEngine(tool_caller=mock_caller)
+
+        # Preview in the middle - subsequent stages see preview output, not original data
+        pipeline = [
+            {"type": "tool", "name": "get_data", "server": "test", "args": {}},
+            {"type": "preview", "chars": 500},
+            {"type": "command", "command": "wc", "args": ["-l"]},  # Count lines
+        ]
+
+        result = await engine.execute_pipeline(pipeline)
+        # wc -l should return a number (the line count of the preview)
+        assert result.strip().isdigit() or result.strip().split()[0].isdigit()
+
+
+@pytest.mark.asyncio
 class TestErrorHandling:
     """Test error handling and edge cases."""
 

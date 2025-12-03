@@ -58,10 +58,11 @@ async def execute_pipeline(pipeline: list[dict]) -> str:
     A pipeline chains multiple stages where data flows from one to the next:
     - Tool stages: Call external tools (from list_all_tools)
     - Command stages: Transform data with jq, grep, sed, awk, etc.
+    - Preview stages: Inspect data structure before processing (recommended!)
 
     Pipeline Structure:
     Each stage is a dict with:
-    - type: "tool" | "command"
+    - type: "tool" | "command" | "preview"
     - for_each (optional): Process items one-by-one instead of all at once
 
     Tool Stage:
@@ -74,6 +75,27 @@ async def execute_pipeline(pipeline: list[dict]) -> str:
     {"type": "command", "command": "jq", "args": ["-c", ".field"]}
     - Runs whitelisted shell commands (see list_available_shell_commands)
     - Command and args MUST be separate (security requirement)
+
+    Preview Stage:
+    {"type": "preview", "chars": 3000}
+    - Shows a SUMMARIZED view of the data (default: 3000 chars)
+    - ⚠️ OUTPUT IS NOT VALID JSON - uses pseudo-format with /* N more */ markers
+    - Use this to understand data structure BEFORE writing jq filters
+    - Example output:
+      === PREVIEW (not valid JSON, showing structure only) ===
+      {
+        items: [
+          { id: 1, name: "First", data: { /* 3 more */ } },
+          /* 47 more */
+        ]
+      }
+      === END PREVIEW ===
+
+    Example - Preview data before processing (RECOMMENDED first step):
+    [
+        {"type": "tool", "name": "fetch", "server": "api", "args": {"url": "..."}},
+        {"type": "preview", "chars": 2000}
+    ]
 
     Example - Chain tools with data transformation:
     [
@@ -107,6 +129,7 @@ async def execute_pipeline(pipeline: list[dict]) -> str:
       This avoids "unexpected additional properties" errors from automatic merging
 
     Best Practices:
+    - Use preview stages to inspect data BEFORE writing jq filters
     - Build complete workflows as single pipelines (don't split unnecessarily)
     - Check list_all_tools first to see what's available
     - Use get_tool_details(server, tool_name) to see exact tool parameters/schema
