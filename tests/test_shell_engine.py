@@ -1,10 +1,54 @@
 import json
+import os
+import shutil
+import subprocess
 import time
 from unittest.mock import AsyncMock
 
 import pytest
 
 from shell_engine import ShellEngine
+
+
+def _bwrap_functional() -> bool:
+    """Check if bwrap is installed and functional (can create namespaces)."""
+    bwrap_path = shutil.which("bwrap")
+    if not bwrap_path:
+        return False
+    try:
+        # Try a minimal bwrap command to see if namespaces work
+        # Need to bind /usr, /lib, /lib64 for dynamic executables to work
+        cmd = [
+            bwrap_path,
+            "--unshare-all",
+            "--ro-bind",
+            "/usr",
+            "/usr",
+            "--symlink",
+            "/usr/bin",
+            "/bin",
+            "--dev",
+            "/dev",
+            "--proc",
+            "/proc",
+        ]
+        # Add lib directories if they exist
+        for lib_path in ["/lib", "/lib64"]:
+            if os.path.exists(lib_path):
+                cmd.extend(["--ro-bind", lib_path, lib_path])
+        cmd.extend(["--", "/usr/bin/true"])
+
+        result = subprocess.run(cmd, capture_output=True, timeout=5)
+        return result.returncode == 0
+    except (subprocess.TimeoutExpired, OSError):
+        return False
+
+
+# Skip marker for tests that require functional bwrap
+requires_bwrap = pytest.mark.skipif(
+    not _bwrap_functional(),
+    reason="bwrap not functional (may lack namespace permissions in CI)",
+)
 
 
 class MockToolResult:
@@ -90,6 +134,7 @@ class TestCommandValidation:
             engine.validate_command("")
 
 
+@requires_bwrap
 @pytest.mark.asyncio
 class TestShellStage:
     """Test shell_stage execution."""
@@ -349,6 +394,7 @@ class TestToolStage:
 class TestExecutePipeline:
     """Test execute_pipeline with various pipeline configurations."""
 
+    @requires_bwrap
     async def test_execute_pipeline_single_command(self):
         """Test pipeline with tool followed by shell command."""
         mock_caller = AsyncMock(return_value=MockToolResult("test output"))
@@ -363,6 +409,7 @@ class TestExecutePipeline:
 
         assert "test output" in result
 
+    @requires_bwrap
     async def test_execute_pipeline_multiple_commands(self):
         """Test pipeline with tool and multiple shell commands."""
         mock_caller = AsyncMock(return_value=MockToolResult("apple\nbanana\ncherry"))
@@ -398,6 +445,7 @@ class TestExecutePipeline:
         assert "tool result" in result
         mock_caller.assert_called_once()
 
+    @requires_bwrap
     async def test_execute_pipeline_mixed_stages(self):
         """Test pipeline with mixed command and tool stages."""
         mock_caller = AsyncMock(return_value=MockToolResult('{"data": "test"}'))
@@ -540,7 +588,9 @@ class TestPreviewStage:
 
     async def test_preview_stage_basic(self):
         """Test that preview stage summarizes JSON data."""
-        large_data = json.dumps({"items": [{"id": i, "name": f"Item {i}"} for i in range(100)]})
+        large_data = json.dumps(
+            {"items": [{"id": i, "name": f"Item {i}"} for i in range(100)]}
+        )
         mock_caller = AsyncMock(return_value=MockToolResult(large_data))
         engine = ShellEngine(tool_caller=mock_caller)
 
@@ -603,6 +653,7 @@ class TestPreviewStage:
         with pytest.raises(RuntimeError, match="chars.*must be a positive integer"):
             await engine.execute_pipeline(pipeline)
 
+    @requires_bwrap
     async def test_preview_stage_in_middle_of_pipeline(self):
         """Test that preview can be used mid-pipeline (though output won't be valid JSON)."""
         mock_caller = AsyncMock(return_value=MockToolResult('{"value": 42}'))
@@ -657,6 +708,7 @@ class TestErrorHandling:
         with pytest.raises(RuntimeError, match="Pipeline execution failed.*Stage 2"):
             await engine.execute_pipeline(pipeline)
 
+    @requires_bwrap
     async def test_shell_command_error_with_stderr(self):
         """Test that shell commands that fail with stderr output raise proper errors."""
         # jq fails with exit code 5 when trying to index a string with a field name
@@ -674,6 +726,7 @@ class TestErrorHandling:
         ):
             await engine.execute_pipeline(pipeline)
 
+    @requires_bwrap
     async def test_shell_command_grep_no_match_no_error(self):
         """Test that grep returning no match (exit 1) doesn't raise error."""
         mock_caller = AsyncMock(return_value=MockToolResult("hello world\n"))
@@ -691,6 +744,7 @@ class TestErrorHandling:
         assert result.strip() == ""
 
 
+@requires_bwrap
 @pytest.mark.asyncio
 class TestShellCommandTimeouts:
     """Test timeout functionality for shell commands."""
@@ -814,6 +868,7 @@ class TestShellCommandTimeouts:
         assert engine.default_timeout == 5.0
 
 
+@requires_bwrap
 @pytest.mark.asyncio
 class TestStreamingForEach:
     """Test that for_each mode truly streams data instead of loading all into memory."""

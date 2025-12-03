@@ -38,13 +38,16 @@ def _running_in_container() -> bool:
         if cgroup_path.exists():
             cgroup_content = cgroup_path.read_text()
             # Look for docker, podman, containerd, or lxc indicators
-            if any(indicator in cgroup_content for indicator in
-                   ["docker", "podman", "containerd", "lxc", "kubepods"]):
+            if any(
+                indicator in cgroup_content
+                for indicator in ["docker", "podman", "containerd", "lxc", "kubepods"]
+            ):
                 return True
     except (OSError, PermissionError):
         pass
 
     return False
+
 
 # Whitelist of allowed shell commands
 # Note: Commands that only generate hardcoded text (echo, printf) are excluded

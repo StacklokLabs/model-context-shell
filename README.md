@@ -1,6 +1,6 @@
 # MCP Shell
 
-**Unix pipelines for MCP tools — coordinate thousands of tool calls in a single request**
+**Unix-style pipelines for MCP tools — coordinate thousands of tool calls in a single request**
 
 ## Overview
 
@@ -42,7 +42,7 @@ MCP Shell gives agents Unix-style composition for MCP tools:
 
 ## Real-World Example
 
-From the demo: "List all Pokemon over 50 kg that have the chlorophyll ability"
+Example query: "List all Pokemon over 50 kg that have the chlorophyll ability"
 
 Instead of 7+ separate tool calls loading all Pokemon data into context, the agent constructed a single pipeline:
 
@@ -362,7 +362,7 @@ result2 = execute_pipeline([{"type": "tool", "args": {"data": result1}}])
 
 ## Testing
 
-The project demonstrated 50%+ token savings in real-world tests, with the agent successfully using the shell without any special training or configuration.
+Initial testing showed 50%+ token savings in real-world scenarios, with the agent successfully using the shell without any special training or configuration.
 
 **Test results**:
 - ✅ Agents can use the shell out-of-the-box (no model retraining needed)
@@ -407,8 +407,8 @@ This is an experimental project. Contributions, ideas, and feedback are welcome!
 
 ## Credits
 
-Developed by Dániel Kántor at ToolHive. Presented at Engineering Demo Day, October 2025.
+Developed by Dániel Kántor at ToolHive.
 
 ---
 
-**Note**: This is an experimental project exploring new patterns for AI agent coordination. The approach has proven effective in demos but needs broader testing and community feedback.
+**Note**: This is an experimental project exploring new patterns for AI agent coordination. The approach has proven effective in testing but needs broader testing and community feedback.
