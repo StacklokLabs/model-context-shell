@@ -56,9 +56,9 @@ async def test_tmp_is_writable_tmpfs_and_readable_within_command():
 async def test_root_is_read_only_cannot_create_files():
     engine = await _new_engine()
 
-    # Attempt to write to /. If it were writable, we'd read back content.
-    # With proper sandboxing, awk will either fail to write (permission denied)
-    # or print NOPE. Either way, WROTE should not appear.
+    # Attempt to write to /. With proper sandboxing, awk will fail with
+    # "Read-only file system" error on stderr. Our error handling detects
+    # this (non-zero exit + stderr output) and raises RuntimeError.
     prog = (
         'BEGIN { f = "/mcpshell_should_fail"; '
         'print "x" > f; close(f); '
@@ -68,14 +68,16 @@ async def test_root_is_read_only_cannot_create_files():
 
     pipeline = [{"type": "command", "command": "awk", "args": [prog]}]
 
-    out = await engine.execute_pipeline(pipeline)
-    assert "WROTE" not in out
+    with pytest.raises(RuntimeError, match="(Read-only file system|Permission denied)"):
+        await engine.execute_pipeline(pipeline)
 
 
 @pytest.mark.asyncio
 async def test_usr_is_read_only_cannot_create_files():
     engine = await _new_engine()
 
+    # Attempt to write to /usr. With proper sandboxing, awk will fail with
+    # "Read-only file system" error on stderr.
     prog = (
         'BEGIN { f = "/usr/mcpshell_should_fail"; '
         'print "x" > f; close(f); '
@@ -85,5 +87,5 @@ async def test_usr_is_read_only_cannot_create_files():
 
     pipeline = [{"type": "command", "command": "awk", "args": [prog]}]
 
-    out = await engine.execute_pipeline(pipeline)
-    assert "WROTE" not in out
+    with pytest.raises(RuntimeError, match="(Read-only file system|Permission denied)"):
+        await engine.execute_pipeline(pipeline)

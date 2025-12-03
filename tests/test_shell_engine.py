@@ -571,6 +571,39 @@ class TestErrorHandling:
         with pytest.raises(RuntimeError, match="Pipeline execution failed.*Stage 2"):
             await engine.execute_pipeline(pipeline)
 
+    async def test_shell_command_error_with_stderr(self):
+        """Test that shell commands that fail with stderr output raise proper errors."""
+        # jq fails with exit code 5 when trying to index a string with a field name
+        # Input is a JSON string (not object), so .name fails with "Cannot index string"
+        mock_caller = AsyncMock(return_value=MockToolResult('"just a string"'))
+        engine = ShellEngine(tool_caller=mock_caller)
+
+        pipeline = [
+            {"type": "tool", "name": "get_data", "server": "test", "args": {}},
+            {"type": "command", "command": "jq", "args": [".name"]},
+        ]
+
+        with pytest.raises(
+            RuntimeError, match="Command 'jq' failed with exit code.*Stderr:"
+        ):
+            await engine.execute_pipeline(pipeline)
+
+    async def test_shell_command_grep_no_match_no_error(self):
+        """Test that grep returning no match (exit 1) doesn't raise error."""
+        mock_caller = AsyncMock(return_value=MockToolResult("hello world\n"))
+        engine = ShellEngine(tool_caller=mock_caller)
+
+        # grep exits with 1 when no match, but doesn't write to stderr
+        # This should NOT raise an error - just return empty output
+        pipeline = [
+            {"type": "tool", "name": "get_data", "server": "test", "args": {}},
+            {"type": "command", "command": "grep", "args": ["nonexistent_pattern"]},
+        ]
+
+        result = await engine.execute_pipeline(pipeline)
+        # Should complete successfully with empty output
+        assert result.strip() == ""
+
 
 @pytest.mark.asyncio
 class TestShellCommandTimeouts:

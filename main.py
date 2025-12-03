@@ -51,6 +51,10 @@ async def execute_pipeline(pipeline: list[dict]) -> str:
     ⚠️ IMPORTANT: Before using this tool, call list_all_tools() to discover what tools
     are actually available. Do not assume tools exist - verify them first!
 
+    ⚠️ FOR BATCH OPERATIONS: Use for_each to process multiple items in ONE pipeline call.
+    Do NOT make separate execute_pipeline calls for each item - that's inefficient!
+    Example: To fetch 50 Pokemon details, use ONE pipeline with for_each, not 50 separate calls.
+
     A pipeline chains multiple stages where data flows from one to the next:
     - Tool stages: Call external tools (from list_all_tools)
     - Command stages: Transform data with jq, grep, sed, awk, etc.
@@ -83,6 +87,14 @@ async def execute_pipeline(pipeline: list[dict]) -> str:
         {"type": "tool", "name": "list_users", "server": "api", "args": {}},
         {"type": "command", "command": "jq", "args": ["-c", ".users[] | {user_id: .id}"]},
         {"type": "tool", "name": "get_profile", "server": "api", "for_each": true}
+    ]
+
+    Example - Fetch URLs from a list (common API pattern):
+    [
+        {"type": "tool", "name": "fetch", "server": "fetch", "args": {"url": "https://api.example.com/items"}},
+        {"type": "command", "command": "jq", "args": ["-c", ".results[] | {url: .url}"]},
+        {"type": "tool", "name": "fetch", "server": "fetch", "for_each": true},
+        {"type": "command", "command": "jq", "args": ["-c", "select(.weight > 500) | {name, weight}"]}
     ]
 
     How for_each works:

@@ -10,7 +10,39 @@ import os
 import shutil
 import subprocess
 from collections.abc import Awaitable, Callable, Generator, Iterable
+from pathlib import Path
 from typing import Any
+
+
+def _running_in_container() -> bool:
+    """Detect if we're running inside a container (Docker, Podman, etc.).
+
+    Uses multiple detection methods:
+    1. Check for /.dockerenv file (Docker-specific)
+    2. Check for /run/.containerenv file (Podman-specific)
+    3. Check cgroup for container indicators
+    """
+    # Docker creates this file
+    if Path("/.dockerenv").exists():
+        return True
+
+    # Podman creates this file
+    if Path("/run/.containerenv").exists():
+        return True
+
+    # Check cgroup for container indicators
+    try:
+        cgroup_path = Path("/proc/1/cgroup")
+        if cgroup_path.exists():
+            cgroup_content = cgroup_path.read_text()
+            # Look for docker, podman, containerd, or lxc indicators
+            if any(indicator in cgroup_content for indicator in
+                   ["docker", "podman", "containerd", "lxc", "kubepods"]):
+                return True
+    except (OSError, PermissionError):
+        pass
+
+    return False
 
 # Whitelist of allowed shell commands
 # Note: Commands that only generate hardcoded text (echo, printf) are excluded
@@ -69,15 +101,27 @@ class ShellEngine:
         self.default_timeout = (
             default_timeout if default_timeout is not None else DEFAULT_TIMEOUT
         )
-        # Bubblewrap integration: mandatory. Fail fast if not available.
+        # Container detection: skip bwrap when already running in Docker/Podman
+        # since the container provides isolation
+        self.in_container = _running_in_container()
+
+        # Bubblewrap integration: required unless running in a container
         self.bwrap_path = shutil.which("bwrap")
-        if not self.bwrap_path:
+        if not self.bwrap_path and not self.in_container:
             raise FileNotFoundError(
                 "bubblewrap (bwrap) is required but was not found in PATH"
             )
 
     def _bwrap_prefix(self) -> list[str]:
-        """Build the bubblewrap prefix for sandboxed command execution."""
+        """Build the bubblewrap prefix for sandboxed command execution.
+
+        Returns empty list when running in a container, since the container
+        itself provides isolation.
+        """
+        # Skip bwrap when running in a container
+        if self.in_container:
+            return []
+
         if not self.bwrap_path:
             raise FileNotFoundError(
                 "bubblewrap (bwrap) is required but was not found in PATH"
@@ -144,8 +188,10 @@ class ShellEngine:
         actual_timeout = timeout if timeout is not None else self.default_timeout
 
         # Build command list for subprocess (shell=False for security)
-        # Always wrap with bubblewrap for sandboxing
-        cmd_list = self._bwrap_prefix() + ["--", cmd] + args
+        # Wrap with bubblewrap for sandboxing when not in a container
+        # With bwrap: bwrap [args...] -- cmd [args...]; Without: just cmd [args...]
+        bwrap_prefix = self._bwrap_prefix()
+        cmd_list = bwrap_prefix + ["--", cmd] + args if bwrap_prefix else [cmd] + args
 
         if for_each:
             # Execute command once per input line, streaming from upstream
@@ -174,9 +220,21 @@ class ShellEngine:
 
                     # Write single line and get output with timeout
                     try:
-                        stdout, _ = proc.communicate(
+                        stdout, stderr = proc.communicate(
                             input=line + "\n", timeout=actual_timeout
                         )
+                        # If command failed with no output and has stderr, raise error
+                        # This catches real errors (like jq parse failures) but allows
+                        # commands like grep to return exit 1 for "no match" without error
+                        if (
+                            proc.returncode != 0
+                            and not stdout.strip()
+                            and stderr.strip()
+                        ):
+                            raise RuntimeError(
+                                f"Command '{cmd}' failed with exit code {proc.returncode}. "
+                                f"Stderr: {stderr.strip()}"
+                            )
                         for output_line in stdout.splitlines(keepends=True):
                             yield output_line
                     except subprocess.TimeoutExpired:
@@ -198,9 +256,17 @@ class ShellEngine:
                 )
 
                 try:
-                    stdout, _ = proc.communicate(
+                    stdout, stderr = proc.communicate(
                         input=buffer + "\n", timeout=actual_timeout
                     )
+                    # If command failed with no output and has stderr, raise error
+                    # This catches real errors (like jq parse failures) but allows
+                    # commands like grep to return exit 1 for "no match" without error
+                    if proc.returncode != 0 and not stdout.strip() and stderr.strip():
+                        raise RuntimeError(
+                            f"Command '{cmd}' failed with exit code {proc.returncode}. "
+                            f"Stderr: {stderr.strip()}"
+                        )
                     for output_line in stdout.splitlines(keepends=True):
                         yield output_line
                 except subprocess.TimeoutExpired:
@@ -225,7 +291,18 @@ class ShellEngine:
 
             # Use communicate with timeout for proper timeout handling
             try:
-                stdout, _ = proc.communicate(input=input_data, timeout=actual_timeout)
+                stdout, stderr = proc.communicate(
+                    input=input_data, timeout=actual_timeout
+                )
+                # If command failed with no output and has stderr, raise error
+                # This catches cases like jq parse errors where the command produces
+                # error output on stderr but nothing on stdout, while allowing
+                # commands like grep to return exit 1 for "no match" without error
+                if proc.returncode != 0 and not stdout.strip() and stderr.strip():
+                    raise RuntimeError(
+                        f"Command '{cmd}' failed with exit code {proc.returncode}. "
+                        f"Stderr: {stderr.strip()}"
+                    )
                 # Yield all output lines
                 for line in stdout.splitlines(keepends=True):
                     yield line
@@ -235,9 +312,6 @@ class ShellEngine:
                 raise TimeoutError(
                     f"Command '{cmd}' timed out after {actual_timeout} seconds"
                 )
-
-            # Like shell pipelines, we don't fail on non-zero exit codes
-            # The pipeline continues and only breaks on severe errors (handled by exceptions above)
 
     async def tool_stage(
         self,
@@ -295,11 +369,17 @@ class ShellEngine:
                     try:
                         result = await self.tool_caller(server, tool, call_args)
                     except Exception as e:
+                        # Unwrap nested exceptions to get the root cause
+                        error_msg = str(e)
+                        cause = e.__cause__
+                        while cause:
+                            error_msg = str(cause)
+                            cause = cause.__cause__
                         # Add context about which line failed
                         raise RuntimeError(
                             f"Line {line_num}: Tool call failed for {server}/{tool}. "
                             f"Args used: {json.dumps(call_args, indent=2)}. "
-                            f"Error: {str(e)}"
+                            f"Error: {error_msg}"
                         ) from e
 
                     # Extract content from result
@@ -343,11 +423,17 @@ class ShellEngine:
                 try:
                     result = await self.tool_caller(server, tool, call_args)
                 except Exception as e:
+                    # Unwrap nested exceptions to get the root cause
+                    error_msg = str(e)
+                    cause = e.__cause__
+                    while cause:
+                        error_msg = str(cause)
+                        cause = cause.__cause__
                     # Add context about which line failed
                     raise RuntimeError(
                         f"Line {line_num}: Tool call failed for {server}/{tool}. "
                         f"Args used: {json.dumps(call_args, indent=2)}. "
-                        f"Error: {str(e)}"
+                        f"Error: {error_msg}"
                     ) from e
 
                 # Extract content from result
