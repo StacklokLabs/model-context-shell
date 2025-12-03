@@ -89,12 +89,14 @@ async def execute_pipeline(pipeline: list[dict]) -> str:
         {"type": "tool", "name": "get_profile", "server": "api", "for_each": true}
     ]
 
-    Example - Fetch URLs from a list (common API pattern):
+    Example - Get orders, enrich with customer data, format as CSV:
     [
-        {"type": "tool", "name": "fetch", "server": "fetch", "args": {"url": "https://api.example.com/items"}},
-        {"type": "command", "command": "jq", "args": ["-c", ".results[] | {url: .url}"]},
-        {"type": "tool", "name": "fetch", "server": "fetch", "for_each": true},
-        {"type": "command", "command": "jq", "args": ["-c", "select(.weight > 500) | {name, weight}"]}
+        {"type": "tool", "name": "list_orders", "server": "sales", "args": {"status": "pending"}},
+        {"type": "command", "command": "jq", "args": ["-c", ".orders[] | {customer_id: .customer_id, amount: .total}"]},
+        {"type": "tool", "name": "get_customer", "server": "crm", "for_each": true},
+        {"type": "command", "command": "jq", "args": ["-r", "[.name, .email, .region] | @csv"]},
+        {"type": "command", "command": "sort", "args": []},
+        {"type": "command", "command": "uniq", "args": ["-c"]}
     ]
 
     How for_each works:
