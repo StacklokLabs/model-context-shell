@@ -70,70 +70,18 @@ This single call:
 
 ### Prerequisites
 
-- Python 3.13+
-- bubblewrap (`bwrap`) installed and available in PATH (required)
-- [ToolHive](https://toolhive.ai) (for managing MCP servers)
-- [uv](https://docs.astral.sh/uv/) (recommended) or pip
+- [ToolHive](https://toolhive.ai) (`thv`) for running and managing MCP servers
 
-Notes:
-- On Debian/Ubuntu: `sudo apt-get install bubblewrap`
-- On Fedora: `sudo dnf install bubblewrap`
-- On macOS, bubblewrap is Linux-only; run this server inside Docker/Colima or a Linux VM with bubblewrap installed
+### Quick Start
 
-### Install via ToolHive
-
-```bash
-# Coming soon - will be installable directly through ToolHive
-thv install mcp-shell
-```
-
-### Manual Installation
-
-```bash
-# Clone the repository
-git clone https://github.com/yourusername/mcp-shell.git
-cd mcp-shell
-
-# Install dependencies
-uv sync
-# or with pip
-pip install -e .
-
-# Start the server
-uv run python main.py
-```
-
-## Usage
-
-### Starting the Server
-
-```bash
-# Default: HTTP transport on port 8000
-python main.py
-
-# Stdio transport (for direct MCP client integration)
-python main.py --transport stdio
-
-# Custom port
-python main.py --port 8080
-
-# Environment variables (used if no CLI flags provided)
-# MCP_PORT: Override listening port (default 8000)
-# MCP_HOST: Override bind host (default 127.0.0.1; 0.0.0.0 in containers)
-# Example:
-MCP_PORT=8081 MCP_HOST=0.0.0.0 python main.py
-```
-
-### Run with ToolHive
-
-You can run the server as a ToolHive workload:
+Run the pre-built image from GitHub Container Registry:
 
 ```bash
 # Linux (requires --network host)
-thv run model-context-shell --network host --foreground --transport streamable-http
+thv run ghcr.io/stackloklabs/model-context-shell:latest --network host --foreground --transport streamable-http
 
 # macOS / Windows (Docker Desktop bridge works automatically)
-thv run model-context-shell --foreground --transport streamable-http
+thv run ghcr.io/stackloklabs/model-context-shell:latest --foreground --transport streamable-http
 ```
 
 Options:
@@ -142,8 +90,9 @@ Options:
 - `--transport streamable-http`: Matches the server's default transport and exposes `/mcp`.
 
 Notes:
-- To override the port: `thv run model-context-shell -e MCP_PORT=8081 --foreground --transport streamable-http`
-- Alternatively, use stdio transport: `thv run model-context-shell --foreground --transport stdio` (ToolHive will proxy it over SSE/HTTP).
+- To override the port: `thv run ghcr.io/stackloklabs/model-context-shell:latest -e MCP_PORT=8081 --foreground --transport streamable-http`
+- Alternatively, use stdio transport: `thv run ghcr.io/stackloklabs/model-context-shell:latest --foreground --transport stdio` (ToolHive will proxy it over SSE/HTTP).
+- Use a specific version tag (e.g., `:v0.0.3`) instead of `:latest` for reproducible deployments.
 
 ### Available Tools
 
