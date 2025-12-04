@@ -20,7 +20,11 @@ mcp = FastMCP(
 
 # Create the shell engine with MCP client's call_tool as the tool caller
 # This uses dependency injection to decouple the engine from MCP specifics
-engine = ShellEngine(tool_caller=mcp_client.call_tool)
+# batch_tool_caller enables connection reuse for for_each pipelines (much faster)
+engine = ShellEngine(
+    tool_caller=mcp_client.call_tool,
+    batch_tool_caller=mcp_client.batch_call_tool,
+)
 
 
 @mcp.tool()

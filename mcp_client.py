@@ -9,6 +9,10 @@ from mcp.client.streamable_http import streamablehttp_client
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8080
 
+# Default timeout for tool calls (30 seconds)
+# This prevents tool calls from hanging forever if a server is unresponsive
+DEFAULT_TOOL_TIMEOUT = 30.0
+
 
 async def get_workloads(
     host: str = DEFAULT_HOST, port: int = DEFAULT_PORT
@@ -241,11 +245,23 @@ async def call_tool(
     arguments: dict[str, Any],
     host: str = DEFAULT_HOST,
     port: int = DEFAULT_PORT,
+    timeout: float = DEFAULT_TOOL_TIMEOUT,
 ) -> Any:
     """
     Call a tool from a specific MCP server workload.
 
     Returns the tool result or raises an exception on error.
+
+    Args:
+        workload_name: The MCP server/workload name
+        tool_name: The name of the tool to call
+        arguments: Arguments to pass to the tool
+        host: ToolHive host
+        port: ToolHive port
+        timeout: Timeout in seconds for the tool call (default: DEFAULT_TOOL_TIMEOUT)
+
+    Note: For multiple calls to the same tool, use batch_call_tool() instead
+    to reuse a single connection and avoid connection overhead.
     """
     # Resolve ToolHive connection dynamically when using defaults
     # This makes it work in containers and local when thv serve chooses a dynamic port
@@ -278,23 +294,151 @@ async def call_tool(
     if not url:
         raise ValueError(f"No URL provided for workload '{workload_name}'")
 
-    # Connect and call the tool
+    # Connect and call the tool with timeout
     if proxy_mode == "sse":
         async with sse_client(url) as (read, write):
             async with ClientSession(read, write) as session:
                 await session.initialize()
-                result = await session.call_tool(tool_name, arguments=arguments)
+                result = await asyncio.wait_for(
+                    session.call_tool(tool_name, arguments=arguments),
+                    timeout=timeout,
+                )
                 return result
     elif proxy_mode == "streamable-http" or transport_type == "streamable-http":
         async with streamablehttp_client(url) as (read, write, _):
             async with ClientSession(read, write) as session:
                 await session.initialize()
-                result = await session.call_tool(tool_name, arguments=arguments)
+                result = await asyncio.wait_for(
+                    session.call_tool(tool_name, arguments=arguments),
+                    timeout=timeout,
+                )
                 return result
     else:
         raise ValueError(
             f"Transport/proxy mode '{proxy_mode or transport_type}' not supported"
         )
+
+
+async def batch_call_tool(
+    workload_name: str,
+    tool_name: str,
+    arguments_list: list[dict[str, Any]],
+    host: str = DEFAULT_HOST,
+    port: int = DEFAULT_PORT,
+    timeout: float = DEFAULT_TOOL_TIMEOUT,
+) -> list[Any]:
+    """
+    Call a tool multiple times using a single connection.
+
+    This is much more efficient than calling call_tool() in a loop, as it
+    reuses the same MCP session for all calls, avoiding the overhead of:
+    - HTTP connection setup per call
+    - MCP session initialization per call
+    - Workload discovery per call
+
+    Args:
+        workload_name: The MCP server/workload name
+        tool_name: The name of the tool to call
+        arguments_list: List of argument dicts, one per call
+        host: ToolHive host
+        port: ToolHive port
+        timeout: Timeout in seconds for each individual tool call (default: DEFAULT_TOOL_TIMEOUT)
+
+    Returns:
+        List of tool results in the same order as arguments_list
+    """
+    if not arguments_list:
+        return []
+
+    # Resolve ToolHive connection dynamically when using defaults
+    try:
+        if host == DEFAULT_HOST and port == DEFAULT_PORT:
+            from toolhive_client import discover_toolhive
+
+            host, port = discover_toolhive(host=None, port=None)
+    except Exception:
+        # Fall back to provided/defaults if discovery fails
+        pass
+
+    # Get the workload details (only once for all calls)
+    workloads = await get_workloads(host, port)
+    workload = next((w for w in workloads if w.get("name") == workload_name), None)
+
+    if not workload:
+        raise ValueError(f"Workload '{workload_name}' not found")
+
+    url = workload.get("url", "")
+    status = workload.get("status", "")
+    proxy_mode = workload.get("proxy_mode", "")
+    transport_type = workload.get("transport_type", "")
+
+    if status != "running":
+        raise RuntimeError(
+            f"Workload '{workload_name}' is not running (status: {status})"
+        )
+
+    if not url:
+        raise ValueError(f"No URL provided for workload '{workload_name}'")
+
+    # Connect once and call the tool multiple times with timeout per call
+    results = []
+    total_items = len(arguments_list)
+
+    async def execute_calls(session):
+        nonlocal results
+        for idx, arguments in enumerate(arguments_list):
+            try:
+                result = await asyncio.wait_for(
+                    session.call_tool(tool_name, arguments=arguments),
+                    timeout=timeout,
+                )
+                results.append(result)
+            except Exception as e:
+                # Build informative error message with progress info
+                completed = len(results)
+                pending = total_items - idx - 1
+                failed_item = idx + 1  # 1-indexed for user-friendly message
+
+                # Extract partial results text for context
+                partial_results_text = []
+                for r in results:
+                    if hasattr(r, "content"):
+                        for content_item in r.content:
+                            if hasattr(content_item, "text"):
+                                partial_results_text.append(content_item.text)
+                    else:
+                        partial_results_text.append(str(r))
+
+                error_parts = [
+                    f"Batch tool call failed at item {failed_item} of {total_items}.",
+                    f"Completed: {completed} successful, {pending} pending.",
+                    f"Error: {str(e)}",
+                ]
+
+                if partial_results_text:
+                    error_parts.append(
+                        f"Partial results from successful calls:\n"
+                        + "\n".join(partial_results_text)
+                    )
+
+                raise RuntimeError("\n".join(error_parts)) from e
+
+    if proxy_mode == "sse":
+        async with sse_client(url) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                await execute_calls(session)
+    elif proxy_mode == "streamable-http" or transport_type == "streamable-http":
+        async with streamablehttp_client(url) as (read, write, _):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                await execute_calls(session)
+    else:
+        raise ValueError(
+            f"Transport/proxy mode '{proxy_mode or transport_type}' not supported"
+        )
+
+    return results
 
 
 async def list_tools(
