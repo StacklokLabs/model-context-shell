@@ -748,6 +748,154 @@ class TestGetWorkloadsUrlRewriting:
 
 
 @pytest.mark.asyncio
+class TestBatchCallTool:
+    """Test batch tool calling for connection reuse in for_each scenarios."""
+
+    async def test_batch_call_tool_reuses_connection(self, mocker):
+        """Test that batch_call_tool opens only ONE connection for multiple calls.
+
+        This is critical for for_each pipelines: with 38 Pokemon URLs,
+        opening a new connection per call causes 10+ minute hangs.
+        The fix is to reuse a single MCP session for all calls.
+        """
+        workload = {
+            "name": "test-server",
+            "status": "running",
+            "transport_type": "streamable-http",
+            "url": "http://localhost:8080/mcp",
+        }
+
+        mocker.patch("mcp_client.get_workloads", return_value=[workload])
+        mocker.patch(
+            "toolhive_client.discover_toolhive", return_value=("localhost", 8080)
+        )
+
+        # Track how many times we open a connection
+        connection_open_count = 0
+
+        mock_result = MagicMock()
+        mock_result.content = [MagicMock(text="result")]
+
+        mock_session = MagicMock()
+        mock_session.initialize = AsyncMock()
+        mock_session.call_tool = AsyncMock(return_value=mock_result)
+
+        mock_client_session = MagicMock()
+        mock_client_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_client_session.__aexit__ = AsyncMock()
+
+        def tracking_streamablehttp_client(url):
+            nonlocal connection_open_count
+            connection_open_count += 1
+            mock_http = MagicMock()
+            mock_http.__aenter__ = AsyncMock(return_value=("read", "write", lambda: None))
+            mock_http.__aexit__ = AsyncMock()
+            return mock_http
+
+        mocker.patch(
+            "mcp_client.streamablehttp_client",
+            side_effect=tracking_streamablehttp_client,
+        )
+        mocker.patch("mcp_client.ClientSession", return_value=mock_client_session)
+
+        # Make 10 tool calls - simulating for_each with 10 items
+        call_args_list = [{"id": i} for i in range(10)]
+
+        # Use batch_call_tool - should only open ONE connection
+        results = await mcp_client.batch_call_tool(
+            "test-server", "fetch", call_args_list
+        )
+
+        # Should only open ONE connection for all 10 calls
+        assert connection_open_count == 1, (
+            f"Expected 1 connection for batch call, got {connection_open_count}"
+        )
+
+        # Should return 10 results
+        assert len(results) == 10
+
+        # Session's call_tool should have been called 10 times
+        assert mock_session.call_tool.call_count == 10
+
+    async def test_batch_call_tool_empty_list(self, mocker):
+        """Test that batch_call_tool handles empty list without opening connections."""
+        connection_open_count = 0
+
+        def tracking_streamablehttp_client(url):
+            nonlocal connection_open_count
+            connection_open_count += 1
+            return MagicMock()
+
+        mocker.patch(
+            "mcp_client.streamablehttp_client",
+            side_effect=tracking_streamablehttp_client,
+        )
+
+        results = await mcp_client.batch_call_tool("test-server", "fetch", [])
+
+        assert results == []
+        assert connection_open_count == 0  # No connections opened for empty list
+
+    async def test_batch_call_tool_sse_transport(self, mocker):
+        """Test batch_call_tool works with SSE transport."""
+        workload = {
+            "name": "test-server",
+            "status": "running",
+            "proxy_mode": "sse",
+            "url": "http://localhost:8080/sse",
+        }
+
+        mocker.patch("mcp_client.get_workloads", return_value=[workload])
+        mocker.patch(
+            "toolhive_client.discover_toolhive", return_value=("localhost", 8080)
+        )
+
+        connection_open_count = 0
+
+        mock_result = MagicMock()
+        mock_result.content = [MagicMock(text="sse_result")]
+
+        mock_session = MagicMock()
+        mock_session.initialize = AsyncMock()
+        mock_session.call_tool = AsyncMock(return_value=mock_result)
+
+        mock_client_session = MagicMock()
+        mock_client_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_client_session.__aexit__ = AsyncMock()
+
+        def tracking_sse_client(url):
+            nonlocal connection_open_count
+            connection_open_count += 1
+            mock_sse = MagicMock()
+            mock_sse.__aenter__ = AsyncMock(return_value=("read", "write"))
+            mock_sse.__aexit__ = AsyncMock()
+            return mock_sse
+
+        mocker.patch("mcp_client.sse_client", side_effect=tracking_sse_client)
+        mocker.patch("mcp_client.ClientSession", return_value=mock_client_session)
+
+        call_args_list = [{"id": i} for i in range(5)]
+        results = await mcp_client.batch_call_tool(
+            "test-server", "fetch", call_args_list
+        )
+
+        assert connection_open_count == 1
+        assert len(results) == 5
+
+    async def test_batch_call_tool_workload_not_found(self, mocker):
+        """Test batch_call_tool raises error for non-existent workload."""
+        mocker.patch("mcp_client.get_workloads", return_value=[])
+        mocker.patch(
+            "toolhive_client.discover_toolhive", return_value=("localhost", 8080)
+        )
+
+        with pytest.raises(ValueError, match="not found"):
+            await mcp_client.batch_call_tool(
+                "nonexistent", "fetch", [{"id": 1}]
+            )
+
+
+@pytest.mark.asyncio
 class TestSelfFiltering:
     """Test that mcp-shell filters itself out from tool listings"""
 

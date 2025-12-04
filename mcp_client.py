@@ -246,6 +246,9 @@ async def call_tool(
     Call a tool from a specific MCP server workload.
 
     Returns the tool result or raises an exception on error.
+
+    Note: For multiple calls to the same tool, use batch_call_tool() instead
+    to reuse a single connection and avoid connection overhead.
     """
     # Resolve ToolHive connection dynamically when using defaults
     # This makes it work in containers and local when thv serve chooses a dynamic port
@@ -295,6 +298,90 @@ async def call_tool(
         raise ValueError(
             f"Transport/proxy mode '{proxy_mode or transport_type}' not supported"
         )
+
+
+async def batch_call_tool(
+    workload_name: str,
+    tool_name: str,
+    arguments_list: list[dict[str, Any]],
+    host: str = DEFAULT_HOST,
+    port: int = DEFAULT_PORT,
+) -> list[Any]:
+    """
+    Call a tool multiple times using a single connection.
+
+    This is much more efficient than calling call_tool() in a loop, as it
+    reuses the same MCP session for all calls, avoiding the overhead of:
+    - HTTP connection setup per call
+    - MCP session initialization per call
+    - Workload discovery per call
+
+    Args:
+        workload_name: The MCP server/workload name
+        tool_name: The name of the tool to call
+        arguments_list: List of argument dicts, one per call
+        host: ToolHive host
+        port: ToolHive port
+
+    Returns:
+        List of tool results in the same order as arguments_list
+    """
+    if not arguments_list:
+        return []
+
+    # Resolve ToolHive connection dynamically when using defaults
+    try:
+        if host == DEFAULT_HOST and port == DEFAULT_PORT:
+            from toolhive_client import discover_toolhive
+
+            host, port = discover_toolhive(host=None, port=None)
+    except Exception:
+        # Fall back to provided/defaults if discovery fails
+        pass
+
+    # Get the workload details (only once for all calls)
+    workloads = await get_workloads(host, port)
+    workload = next((w for w in workloads if w.get("name") == workload_name), None)
+
+    if not workload:
+        raise ValueError(f"Workload '{workload_name}' not found")
+
+    url = workload.get("url", "")
+    status = workload.get("status", "")
+    proxy_mode = workload.get("proxy_mode", "")
+    transport_type = workload.get("transport_type", "")
+
+    if status != "running":
+        raise RuntimeError(
+            f"Workload '{workload_name}' is not running (status: {status})"
+        )
+
+    if not url:
+        raise ValueError(f"No URL provided for workload '{workload_name}'")
+
+    # Connect once and call the tool multiple times
+    results = []
+
+    if proxy_mode == "sse":
+        async with sse_client(url) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                for arguments in arguments_list:
+                    result = await session.call_tool(tool_name, arguments=arguments)
+                    results.append(result)
+    elif proxy_mode == "streamable-http" or transport_type == "streamable-http":
+        async with streamablehttp_client(url) as (read, write, _):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                for arguments in arguments_list:
+                    result = await session.call_tool(tool_name, arguments=arguments)
+                    results.append(result)
+    else:
+        raise ValueError(
+            f"Transport/proxy mode '{proxy_mode or transport_type}' not supported"
+        )
+
+    return results
 
 
 async def list_tools(

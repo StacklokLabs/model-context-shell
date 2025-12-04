@@ -89,6 +89,9 @@ class ShellEngine:
     def __init__(
         self,
         tool_caller: Callable[[str, str, dict[str, Any]], Awaitable[Any]],
+        batch_tool_caller: Callable[
+            [str, str, list[dict[str, Any]]], Awaitable[list[Any]]
+        ] = None,
         allowed_commands: list[str] = None,
         default_timeout: float = None,
     ):
@@ -98,10 +101,14 @@ class ShellEngine:
         Args:
             tool_caller: Async function that calls external tools.
                          Signature: async def(server: str, tool: str, args: dict) -> Any
+            batch_tool_caller: Optional async function for batch tool calls (connection reuse).
+                         Signature: async def(server: str, tool: str, args_list: list[dict]) -> list[Any]
+                         If not provided, for_each mode will fall back to calling tool_caller in a loop.
             allowed_commands: List of allowed shell commands. Defaults to ALLOWED_COMMANDS.
             default_timeout: Default timeout in seconds for shell commands. Defaults to DEFAULT_TIMEOUT (30s).
         """
         self.tool_caller = tool_caller
+        self.batch_tool_caller = batch_tool_caller
         self.allowed_commands = allowed_commands or ALLOWED_COMMANDS
         self.default_timeout = (
             default_timeout if default_timeout is not None else DEFAULT_TIMEOUT
@@ -329,16 +336,14 @@ class ShellEngine:
         """Call a tool with upstream data as input."""
 
         if for_each:
-            # Execute tool once per line (expecting JSONL input), streaming from upstream
-            results = []
+            # First, collect and parse all input lines
+            all_call_args = []
             buffer = ""
             line_num = 0
 
             for chunk in upstream:
-                # Add chunk to buffer
                 buffer += chunk
 
-                # Process all complete lines in buffer
                 while "\n" in buffer:
                     line, buffer = buffer.split("\n", 1)
                     line_num += 1
@@ -347,10 +352,8 @@ class ShellEngine:
                         continue
 
                     try:
-                        # Parse each line as JSON
                         parsed_line = json.loads(line)
                     except json.JSONDecodeError as e:
-                        # If parsing fails, provide helpful error message
                         raise ValueError(
                             f"Line {line_num}: Invalid JSON in for_each mode. "
                             f"Tools with for_each require JSONL input (one JSON object per line). "
@@ -359,52 +362,25 @@ class ShellEngine:
                             f"For example, if the tool needs 'url' parameter: jq -c '.[] | {{url: .}}'"
                         ) from e
 
-                    # Merge parsed JSON with args (args take precedence)
                     if isinstance(parsed_line, dict):
                         call_args = {**parsed_line, **args}
                     else:
-                        # Non-dict JSON values (arrays, strings, numbers) cannot be used directly
                         raise ValueError(
                             f"Line {line_num}: Expected JSON object, got {type(parsed_line).__name__}. "
                             f"Tools require parameter names. Got: {json.dumps(parsed_line)[:100]}... "
                             f"Transform your data into objects, e.g.: jq -c '{{param_name: .}}'"
                         )
 
-                    # Call the tool
-                    try:
-                        result = await self.tool_caller(server, tool, call_args)
-                    except Exception as e:
-                        # Unwrap nested exceptions to get the root cause
-                        error_msg = str(e)
-                        cause = e.__cause__
-                        while cause:
-                            error_msg = str(cause)
-                            cause = cause.__cause__
-                        # Add context about which line failed
-                        raise RuntimeError(
-                            f"Line {line_num}: Tool call failed for {server}/{tool}. "
-                            f"Args used: {json.dumps(call_args, indent=2)}. "
-                            f"Error: {error_msg}"
-                        ) from e
+                    all_call_args.append((line_num, call_args))
 
-                    # Extract content from result
-                    if hasattr(result, "content"):
-                        for content_item in result.content:
-                            if hasattr(content_item, "text"):
-                                results.append(content_item.text)
-                    else:
-                        results.append(str(result))
-
-            # Process any remaining data in buffer (line without trailing newline)
+            # Process remaining buffer
             if buffer.strip():
                 line_num += 1
                 line = buffer
 
                 try:
-                    # Parse each line as JSON
                     parsed_line = json.loads(line)
                 except json.JSONDecodeError as e:
-                    # If parsing fails, provide helpful error message
                     raise ValueError(
                         f"Line {line_num}: Invalid JSON in for_each mode. "
                         f"Tools with for_each require JSONL input (one JSON object per line). "
@@ -413,20 +389,32 @@ class ShellEngine:
                         f"For example, if the tool needs 'url' parameter: jq -c '.[] | {{url: .}}'"
                     ) from e
 
-                # Merge parsed JSON with args (args take precedence)
                 if isinstance(parsed_line, dict):
                     call_args = {**parsed_line, **args}
                 else:
-                    # Non-dict JSON values (arrays, strings, numbers) cannot be used directly
                     raise ValueError(
                         f"Line {line_num}: Expected JSON object, got {type(parsed_line).__name__}. "
                         f"Tools require parameter names. Got: {json.dumps(parsed_line)[:100]}... "
                         f"Transform your data into objects, e.g.: jq -c '{{param_name: .}}'"
                     )
 
-                # Call the tool
+                all_call_args.append((line_num, call_args))
+
+            # Now execute all tool calls
+            results = []
+
+            if self.batch_tool_caller and all_call_args:
+                # Use batch caller for connection reuse (much faster)
+                args_only = [ca[1] for ca in all_call_args]
                 try:
-                    result = await self.tool_caller(server, tool, call_args)
+                    batch_results = await self.batch_tool_caller(server, tool, args_only)
+                    for result in batch_results:
+                        if hasattr(result, "content"):
+                            for content_item in result.content:
+                                if hasattr(content_item, "text"):
+                                    results.append(content_item.text)
+                        else:
+                            results.append(str(result))
                 except Exception as e:
                     # Unwrap nested exceptions to get the root cause
                     error_msg = str(e)
@@ -434,20 +422,33 @@ class ShellEngine:
                     while cause:
                         error_msg = str(cause)
                         cause = cause.__cause__
-                    # Add context about which line failed
                     raise RuntimeError(
-                        f"Line {line_num}: Tool call failed for {server}/{tool}. "
-                        f"Args used: {json.dumps(call_args, indent=2)}. "
+                        f"Batch tool call failed for {server}/{tool}. "
                         f"Error: {error_msg}"
                     ) from e
+            else:
+                # Fallback: call tool one by one (slower, opens connection per call)
+                for line_num, call_args in all_call_args:
+                    try:
+                        result = await self.tool_caller(server, tool, call_args)
+                    except Exception as e:
+                        error_msg = str(e)
+                        cause = e.__cause__
+                        while cause:
+                            error_msg = str(cause)
+                            cause = cause.__cause__
+                        raise RuntimeError(
+                            f"Line {line_num}: Tool call failed for {server}/{tool}. "
+                            f"Args used: {json.dumps(call_args, indent=2)}. "
+                            f"Error: {error_msg}"
+                        ) from e
 
-                # Extract content from result
-                if hasattr(result, "content"):
-                    for content_item in result.content:
-                        if hasattr(content_item, "text"):
-                            results.append(content_item.text)
-                else:
-                    results.append(str(result))
+                    if hasattr(result, "content"):
+                        for content_item in result.content:
+                            if hasattr(content_item, "text"):
+                                results.append(content_item.text)
+                    else:
+                        results.append(str(result))
 
             return "\n".join(results)
 
