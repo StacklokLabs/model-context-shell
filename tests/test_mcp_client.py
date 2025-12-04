@@ -896,6 +896,134 @@ class TestBatchCallTool:
 
 
 @pytest.mark.asyncio
+class TestToolCallTimeout:
+    """Test timeout handling for tool calls."""
+
+    async def test_call_tool_times_out(self, mocker):
+        """Test that call_tool times out after the specified timeout.
+
+        Without timeouts, a hanging tool call can block forever.
+        This test verifies that tool calls respect a timeout.
+        """
+        import asyncio
+
+        workload = {
+            "name": "test-server",
+            "status": "running",
+            "transport_type": "streamable-http",
+            "url": "http://localhost:8080/mcp",
+        }
+
+        mocker.patch("mcp_client.get_workloads", return_value=[workload])
+        mocker.patch(
+            "toolhive_client.discover_toolhive", return_value=("localhost", 8080)
+        )
+
+        # Create a session that hangs forever on call_tool
+        async def hanging_call_tool(*args, **kwargs):
+            await asyncio.sleep(60)  # Hang for 60 seconds
+
+        mock_session = MagicMock()
+        mock_session.initialize = AsyncMock()
+        mock_session.call_tool = MagicMock(side_effect=hanging_call_tool)
+
+        # ClientSession is used as a context manager: `async with ClientSession(...) as session:`
+        # So ClientSession() returns an object, and that object's __aenter__ returns the session
+        mock_client_session_instance = MagicMock()
+        mock_client_session_instance.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_client_session_instance.__aexit__ = AsyncMock(return_value=None)
+
+        mock_http = MagicMock()
+        mock_http.__aenter__ = AsyncMock(return_value=("read", "write", lambda: None))
+        mock_http.__aexit__ = AsyncMock(return_value=None)
+
+        mocker.patch("mcp_client.streamablehttp_client", return_value=mock_http)
+        mocker.patch("mcp_client.ClientSession", return_value=mock_client_session_instance)
+
+        # Verify DEFAULT_TOOL_TIMEOUT constant exists
+        assert hasattr(mcp_client, "DEFAULT_TOOL_TIMEOUT"), (
+            "DEFAULT_TOOL_TIMEOUT constant not defined in mcp_client"
+        )
+
+        # Use a short timeout for testing (0.5 seconds)
+        test_timeout = 0.5
+
+        import time
+        start = time.time()
+
+        with pytest.raises(asyncio.TimeoutError):
+            await mcp_client.call_tool(
+                "test-server", "slow_tool", {"param": "value"}, timeout=test_timeout
+            )
+
+        elapsed = time.time() - start
+
+        # Should timeout within reasonable bounds
+        assert elapsed < test_timeout + 0.5, (
+            f"Tool call took {elapsed}s, expected timeout around {test_timeout}s"
+        )
+        assert elapsed >= test_timeout * 0.8, (
+            f"Tool call returned too quickly ({elapsed}s), timeout may not be working"
+        )
+
+    async def test_batch_call_tool_times_out(self, mocker):
+        """Test that batch_call_tool also respects timeouts."""
+        import asyncio
+
+        workload = {
+            "name": "test-server",
+            "status": "running",
+            "transport_type": "streamable-http",
+            "url": "http://localhost:8080/mcp",
+        }
+
+        mocker.patch("mcp_client.get_workloads", return_value=[workload])
+        mocker.patch(
+            "toolhive_client.discover_toolhive", return_value=("localhost", 8080)
+        )
+
+        # Create a session that hangs on call_tool
+        async def hanging_call_tool(*args, **kwargs):
+            await asyncio.sleep(60)
+
+        mock_session = MagicMock()
+        mock_session.initialize = AsyncMock()
+        mock_session.call_tool = MagicMock(side_effect=hanging_call_tool)
+
+        mock_client_session_instance = MagicMock()
+        mock_client_session_instance.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_client_session_instance.__aexit__ = AsyncMock(return_value=None)
+
+        mock_http = MagicMock()
+        mock_http.__aenter__ = AsyncMock(return_value=("read", "write", lambda: None))
+        mock_http.__aexit__ = AsyncMock(return_value=None)
+
+        mocker.patch("mcp_client.streamablehttp_client", return_value=mock_http)
+        mocker.patch("mcp_client.ClientSession", return_value=mock_client_session_instance)
+
+        # Use a short timeout for testing (0.5 seconds)
+        test_timeout = 0.5
+
+        import time
+        start = time.time()
+
+        with pytest.raises(asyncio.TimeoutError):
+            await mcp_client.batch_call_tool(
+                "test-server", "slow_tool", [{"id": 1}, {"id": 2}], timeout=test_timeout
+            )
+
+        elapsed = time.time() - start
+
+        # Should timeout within reasonable bounds
+        assert elapsed < test_timeout + 0.5, (
+            f"Batch call took {elapsed}s, expected timeout around {test_timeout}s"
+        )
+        assert elapsed >= test_timeout * 0.8, (
+            f"Batch call returned too quickly ({elapsed}s), timeout may not be working"
+        )
+
+
+@pytest.mark.asyncio
 class TestSelfFiltering:
     """Test that mcp-shell filters itself out from tool listings"""
 

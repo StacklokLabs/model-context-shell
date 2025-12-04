@@ -9,6 +9,10 @@ from mcp.client.streamable_http import streamablehttp_client
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8080
 
+# Default timeout for tool calls (30 seconds)
+# This prevents tool calls from hanging forever if a server is unresponsive
+DEFAULT_TOOL_TIMEOUT = 30.0
+
 
 async def get_workloads(
     host: str = DEFAULT_HOST, port: int = DEFAULT_PORT
@@ -241,11 +245,20 @@ async def call_tool(
     arguments: dict[str, Any],
     host: str = DEFAULT_HOST,
     port: int = DEFAULT_PORT,
+    timeout: float = DEFAULT_TOOL_TIMEOUT,
 ) -> Any:
     """
     Call a tool from a specific MCP server workload.
 
     Returns the tool result or raises an exception on error.
+
+    Args:
+        workload_name: The MCP server/workload name
+        tool_name: The name of the tool to call
+        arguments: Arguments to pass to the tool
+        host: ToolHive host
+        port: ToolHive port
+        timeout: Timeout in seconds for the tool call (default: DEFAULT_TOOL_TIMEOUT)
 
     Note: For multiple calls to the same tool, use batch_call_tool() instead
     to reuse a single connection and avoid connection overhead.
@@ -281,18 +294,24 @@ async def call_tool(
     if not url:
         raise ValueError(f"No URL provided for workload '{workload_name}'")
 
-    # Connect and call the tool
+    # Connect and call the tool with timeout
     if proxy_mode == "sse":
         async with sse_client(url) as (read, write):
             async with ClientSession(read, write) as session:
                 await session.initialize()
-                result = await session.call_tool(tool_name, arguments=arguments)
+                result = await asyncio.wait_for(
+                    session.call_tool(tool_name, arguments=arguments),
+                    timeout=timeout,
+                )
                 return result
     elif proxy_mode == "streamable-http" or transport_type == "streamable-http":
         async with streamablehttp_client(url) as (read, write, _):
             async with ClientSession(read, write) as session:
                 await session.initialize()
-                result = await session.call_tool(tool_name, arguments=arguments)
+                result = await asyncio.wait_for(
+                    session.call_tool(tool_name, arguments=arguments),
+                    timeout=timeout,
+                )
                 return result
     else:
         raise ValueError(
@@ -306,6 +325,7 @@ async def batch_call_tool(
     arguments_list: list[dict[str, Any]],
     host: str = DEFAULT_HOST,
     port: int = DEFAULT_PORT,
+    timeout: float = DEFAULT_TOOL_TIMEOUT,
 ) -> list[Any]:
     """
     Call a tool multiple times using a single connection.
@@ -322,6 +342,7 @@ async def batch_call_tool(
         arguments_list: List of argument dicts, one per call
         host: ToolHive host
         port: ToolHive port
+        timeout: Timeout in seconds for each individual tool call (default: DEFAULT_TOOL_TIMEOUT)
 
     Returns:
         List of tool results in the same order as arguments_list
@@ -359,7 +380,7 @@ async def batch_call_tool(
     if not url:
         raise ValueError(f"No URL provided for workload '{workload_name}'")
 
-    # Connect once and call the tool multiple times
+    # Connect once and call the tool multiple times with timeout per call
     results = []
 
     if proxy_mode == "sse":
@@ -367,14 +388,20 @@ async def batch_call_tool(
             async with ClientSession(read, write) as session:
                 await session.initialize()
                 for arguments in arguments_list:
-                    result = await session.call_tool(tool_name, arguments=arguments)
+                    result = await asyncio.wait_for(
+                        session.call_tool(tool_name, arguments=arguments),
+                        timeout=timeout,
+                    )
                     results.append(result)
     elif proxy_mode == "streamable-http" or transport_type == "streamable-http":
         async with streamablehttp_client(url) as (read, write, _):
             async with ClientSession(read, write) as session:
                 await session.initialize()
                 for arguments in arguments_list:
-                    result = await session.call_tool(tool_name, arguments=arguments)
+                    result = await asyncio.wait_for(
+                        session.call_tool(tool_name, arguments=arguments),
+                        timeout=timeout,
+                    )
                     results.append(result)
     else:
         raise ValueError(
