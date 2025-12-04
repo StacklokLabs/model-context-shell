@@ -58,15 +58,15 @@ thv run ghcr.io/stackloklabs/model-context-shell:latest --network host --foregro
 thv run ghcr.io/stackloklabs/model-context-shell:latest --foreground --transport streamable-http
 ```
 
-Use a specific version tag (e.g., `:v0.0.3`) instead of `:latest` for reproducible deployments.
+Once running, MCP Shell is available to any AI agent that ToolHive supports — no additional integration required.
 
 ## Security
 
-MCP Shell is designed with security in mind:
+MCP Shell runs in a containerized environment through ToolHive, so commands have no direct access to the user's filesystem — only through explicitly configured MCP servers.
 
+- **Containerized**: Runs isolated from the host system
 - **Command Whitelisting**: Only safe, read-only data transformation commands are allowed
 - **No Shell Injection**: Commands are executed with `shell=False`, args passed separately
-- **Sandboxed Execution**: No access to arbitrary file system or network operations
 - **MCP Tools Only**: All external operations go through approved MCP servers
 
 ## Roadmap
