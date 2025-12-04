@@ -788,7 +788,9 @@ class TestBatchCallTool:
             nonlocal connection_open_count
             connection_open_count += 1
             mock_http = MagicMock()
-            mock_http.__aenter__ = AsyncMock(return_value=("read", "write", lambda: None))
+            mock_http.__aenter__ = AsyncMock(
+                return_value=("read", "write", lambda: None)
+            )
             mock_http.__aexit__ = AsyncMock()
             return mock_http
 
@@ -890,9 +892,7 @@ class TestBatchCallTool:
         )
 
         with pytest.raises(ValueError, match="not found"):
-            await mcp_client.batch_call_tool(
-                "nonexistent", "fetch", [{"id": 1}]
-            )
+            await mcp_client.batch_call_tool("nonexistent", "fetch", [{"id": 1}])
 
 
 @pytest.mark.asyncio
@@ -937,7 +937,9 @@ class TestBatchCallToolPartialFailure:
         mock_http.__aexit__ = AsyncMock(return_value=None)
 
         mocker.patch("mcp_client.streamablehttp_client", return_value=mock_http)
-        mocker.patch("mcp_client.ClientSession", return_value=mock_client_session_instance)
+        mocker.patch(
+            "mcp_client.ClientSession", return_value=mock_client_session_instance
+        )
 
         call_args_list = [{"id": i} for i in range(5)]
 
@@ -952,9 +954,9 @@ class TestBatchCallToolPartialFailure:
         )
 
         # Should report how many completed successfully
-        assert "2 successful" in error_msg.lower() or "2 completed" in error_msg.lower(), (
-            f"Error should mention 2 items completed successfully. Got: {error_msg}"
-        )
+        assert (
+            "2 successful" in error_msg.lower() or "2 completed" in error_msg.lower()
+        ), f"Error should mention 2 items completed successfully. Got: {error_msg}"
 
         # Should report how many are still pending
         assert "2 pending" in error_msg.lower(), (
@@ -999,7 +1001,9 @@ class TestBatchCallToolPartialFailure:
         mock_http.__aexit__ = AsyncMock(return_value=None)
 
         mocker.patch("mcp_client.streamablehttp_client", return_value=mock_http)
-        mocker.patch("mcp_client.ClientSession", return_value=mock_client_session_instance)
+        mocker.patch(
+            "mcp_client.ClientSession", return_value=mock_client_session_instance
+        )
 
         call_args_list = [{"url": f"http://example.com/{i}"} for i in range(5)]
 
@@ -1057,7 +1061,9 @@ class TestToolCallTimeout:
         mock_http.__aexit__ = AsyncMock(return_value=None)
 
         mocker.patch("mcp_client.streamablehttp_client", return_value=mock_http)
-        mocker.patch("mcp_client.ClientSession", return_value=mock_client_session_instance)
+        mocker.patch(
+            "mcp_client.ClientSession", return_value=mock_client_session_instance
+        )
 
         # Verify DEFAULT_TOOL_TIMEOUT constant exists
         assert hasattr(mcp_client, "DEFAULT_TOOL_TIMEOUT"), (
@@ -1068,6 +1074,7 @@ class TestToolCallTimeout:
         test_timeout = 0.5
 
         import time
+
         start = time.time()
 
         with pytest.raises(asyncio.TimeoutError):
@@ -1118,12 +1125,15 @@ class TestToolCallTimeout:
         mock_http.__aexit__ = AsyncMock(return_value=None)
 
         mocker.patch("mcp_client.streamablehttp_client", return_value=mock_http)
-        mocker.patch("mcp_client.ClientSession", return_value=mock_client_session_instance)
+        mocker.patch(
+            "mcp_client.ClientSession", return_value=mock_client_session_instance
+        )
 
         # Use a short timeout for testing (0.5 seconds)
         test_timeout = 0.5
 
         import time
+
         start = time.time()
 
         # batch_call_tool wraps timeout errors in RuntimeError with progress info
