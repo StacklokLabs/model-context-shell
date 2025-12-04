@@ -407,7 +407,9 @@ class ShellEngine:
                 # Use batch caller for connection reuse (much faster)
                 args_only = [ca[1] for ca in all_call_args]
                 try:
-                    batch_results = await self.batch_tool_caller(server, tool, args_only)
+                    batch_results = await self.batch_tool_caller(
+                        server, tool, args_only
+                    )
                     for result in batch_results:
                         if hasattr(result, "content"):
                             for content_item in result.content:
