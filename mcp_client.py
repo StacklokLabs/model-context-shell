@@ -417,7 +417,7 @@ async def batch_call_tool(
 
                 if partial_results_text:
                     error_parts.append(
-                        f"Partial results from successful calls:\n"
+                        "Partial results from successful calls:\n"
                         + "\n".join(partial_results_text)
                     )
 
