@@ -896,6 +896,125 @@ class TestBatchCallTool:
 
 
 @pytest.mark.asyncio
+class TestBatchCallToolPartialFailure:
+    """Test error reporting when some calls in a batch fail."""
+
+    async def test_batch_call_tool_reports_failure_index(self, mocker):
+        """Test that batch_call_tool reports which item failed."""
+        workload = {
+            "name": "test-server",
+            "status": "running",
+            "transport_type": "streamable-http",
+            "url": "http://localhost:8080/mcp",
+        }
+
+        mocker.patch("mcp_client.get_workloads", return_value=[workload])
+        mocker.patch(
+            "toolhive_client.discover_toolhive", return_value=("localhost", 8080)
+        )
+
+        call_count = 0
+
+        async def failing_on_third_call(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 3:
+                raise RuntimeError("API rate limit exceeded")
+            mock_result = MagicMock()
+            mock_result.content = [MagicMock(text=f"result_{call_count}")]
+            return mock_result
+
+        mock_session = MagicMock()
+        mock_session.initialize = AsyncMock()
+        mock_session.call_tool = MagicMock(side_effect=failing_on_third_call)
+
+        mock_client_session_instance = MagicMock()
+        mock_client_session_instance.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_client_session_instance.__aexit__ = AsyncMock(return_value=None)
+
+        mock_http = MagicMock()
+        mock_http.__aenter__ = AsyncMock(return_value=("read", "write", lambda: None))
+        mock_http.__aexit__ = AsyncMock(return_value=None)
+
+        mocker.patch("mcp_client.streamablehttp_client", return_value=mock_http)
+        mocker.patch("mcp_client.ClientSession", return_value=mock_client_session_instance)
+
+        call_args_list = [{"id": i} for i in range(5)]
+
+        with pytest.raises(RuntimeError) as exc_info:
+            await mcp_client.batch_call_tool("test-server", "fetch", call_args_list)
+
+        error_msg = str(exc_info.value)
+
+        # Should report which item failed (item 3 of 5)
+        assert "item 3" in error_msg.lower() or "3 of 5" in error_msg, (
+            f"Error should mention which item failed (item 3). Got: {error_msg}"
+        )
+
+        # Should report how many completed successfully
+        assert "2 successful" in error_msg.lower() or "2 completed" in error_msg.lower(), (
+            f"Error should mention 2 items completed successfully. Got: {error_msg}"
+        )
+
+        # Should report how many are still pending
+        assert "2 pending" in error_msg.lower(), (
+            f"Error should mention 2 items still pending. Got: {error_msg}"
+        )
+
+    async def test_batch_call_tool_includes_partial_results(self, mocker):
+        """Test that batch_call_tool includes partial results in error."""
+        workload = {
+            "name": "test-server",
+            "status": "running",
+            "transport_type": "streamable-http",
+            "url": "http://localhost:8080/mcp",
+        }
+
+        mocker.patch("mcp_client.get_workloads", return_value=[workload])
+        mocker.patch(
+            "toolhive_client.discover_toolhive", return_value=("localhost", 8080)
+        )
+
+        call_count = 0
+
+        async def failing_on_third_call(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 3:
+                raise RuntimeError("Connection timeout")
+            mock_result = MagicMock()
+            mock_result.content = [MagicMock(text=f"result_{call_count}")]
+            return mock_result
+
+        mock_session = MagicMock()
+        mock_session.initialize = AsyncMock()
+        mock_session.call_tool = MagicMock(side_effect=failing_on_third_call)
+
+        mock_client_session_instance = MagicMock()
+        mock_client_session_instance.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_client_session_instance.__aexit__ = AsyncMock(return_value=None)
+
+        mock_http = MagicMock()
+        mock_http.__aenter__ = AsyncMock(return_value=("read", "write", lambda: None))
+        mock_http.__aexit__ = AsyncMock(return_value=None)
+
+        mocker.patch("mcp_client.streamablehttp_client", return_value=mock_http)
+        mocker.patch("mcp_client.ClientSession", return_value=mock_client_session_instance)
+
+        call_args_list = [{"url": f"http://example.com/{i}"} for i in range(5)]
+
+        with pytest.raises(RuntimeError) as exc_info:
+            await mcp_client.batch_call_tool("test-server", "fetch", call_args_list)
+
+        error_msg = str(exc_info.value)
+
+        # Should include partial results that succeeded
+        assert "result_1" in error_msg and "result_2" in error_msg, (
+            f"Error should include partial results (result_1, result_2). Got: {error_msg}"
+        )
+
+
+@pytest.mark.asyncio
 class TestToolCallTimeout:
     """Test timeout handling for tool calls."""
 
@@ -1007,7 +1126,8 @@ class TestToolCallTimeout:
         import time
         start = time.time()
 
-        with pytest.raises(asyncio.TimeoutError):
+        # batch_call_tool wraps timeout errors in RuntimeError with progress info
+        with pytest.raises(RuntimeError) as exc_info:
             await mcp_client.batch_call_tool(
                 "test-server", "slow_tool", [{"id": 1}, {"id": 2}], timeout=test_timeout
             )
@@ -1020,6 +1140,12 @@ class TestToolCallTimeout:
         )
         assert elapsed >= test_timeout * 0.8, (
             f"Batch call returned too quickly ({elapsed}s), timeout may not be working"
+        )
+
+        # The error should be wrapped with progress info and mention it's a timeout
+        error_msg = str(exc_info.value)
+        assert "item 1 of 2" in error_msg.lower(), (
+            f"Error should indicate which item failed. Got: {error_msg}"
         )
 
 

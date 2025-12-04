@@ -382,27 +382,57 @@ async def batch_call_tool(
 
     # Connect once and call the tool multiple times with timeout per call
     results = []
+    total_items = len(arguments_list)
+
+    async def execute_calls(session):
+        nonlocal results
+        for idx, arguments in enumerate(arguments_list):
+            try:
+                result = await asyncio.wait_for(
+                    session.call_tool(tool_name, arguments=arguments),
+                    timeout=timeout,
+                )
+                results.append(result)
+            except Exception as e:
+                # Build informative error message with progress info
+                completed = len(results)
+                pending = total_items - idx - 1
+                failed_item = idx + 1  # 1-indexed for user-friendly message
+
+                # Extract partial results text for context
+                partial_results_text = []
+                for r in results:
+                    if hasattr(r, "content"):
+                        for content_item in r.content:
+                            if hasattr(content_item, "text"):
+                                partial_results_text.append(content_item.text)
+                    else:
+                        partial_results_text.append(str(r))
+
+                error_parts = [
+                    f"Batch tool call failed at item {failed_item} of {total_items}.",
+                    f"Completed: {completed} successful, {pending} pending.",
+                    f"Error: {str(e)}",
+                ]
+
+                if partial_results_text:
+                    error_parts.append(
+                        f"Partial results from successful calls:\n"
+                        + "\n".join(partial_results_text)
+                    )
+
+                raise RuntimeError("\n".join(error_parts)) from e
 
     if proxy_mode == "sse":
         async with sse_client(url) as (read, write):
             async with ClientSession(read, write) as session:
                 await session.initialize()
-                for arguments in arguments_list:
-                    result = await asyncio.wait_for(
-                        session.call_tool(tool_name, arguments=arguments),
-                        timeout=timeout,
-                    )
-                    results.append(result)
+                await execute_calls(session)
     elif proxy_mode == "streamable-http" or transport_type == "streamable-http":
         async with streamablehttp_client(url) as (read, write, _):
             async with ClientSession(read, write) as session:
                 await session.initialize()
-                for arguments in arguments_list:
-                    result = await asyncio.wait_for(
-                        session.call_tool(tool_name, arguments=arguments),
-                        timeout=timeout,
-                    )
-                    results.append(result)
+                await execute_calls(session)
     else:
         raise ValueError(
             f"Transport/proxy mode '{proxy_mode or transport_type}' not supported"
