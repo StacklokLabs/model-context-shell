@@ -91,7 +91,7 @@ This is an experimental project. Contributions, ideas, and feedback are welcome!
 
 ## License
 
-[To be determined]
+Apache License 2.0 - see [LICENSE](LICENSE) for details.
 
 ## Credits
 
