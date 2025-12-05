@@ -26,7 +26,7 @@ MCP is great — standardized interfaces, structured data, extensible ecosystem.
 | **Composition** | Tools combined through LLM reasoning | Native Unix-style piping between tools |
 | **Data scale** | Limited by context window | Streaming/iterator model handles datasets larger than memory |
 | **Reliability** | LLM-dependent control flow | Deterministic shell pipeline execution |
-| **Permissions** | Complex tasks push toward full shell access | Sandboxed execution with whitelisted commands |
+| **Permissions** | Complex tasks push toward full shell access | Sandboxed execution with allowed commands only |
 
 ## Real-World Example
 
@@ -65,18 +65,15 @@ Once running, MCP Shell is available to any AI agent that ToolHive supports — 
 MCP Shell runs in a containerized environment through ToolHive, so commands have no direct access to the user's filesystem — only through explicitly configured MCP servers.
 
 - **Containerized**: Runs isolated from the host system
-- **Command Whitelisting**: Only safe, read-only data transformation commands are allowed
+- **Allowed Commands**: Only safe, read-only data transformation commands are permitted
 - **No Shell Injection**: Commands are executed with `shell=False`, args passed separately
 - **MCP Tools Only**: All external operations go through approved MCP servers
 
-## Roadmap
+## Usage Tips
 
-- [ ] Open source release with documentation
-- [ ] Integration with ToolHive ecosystem
-- [ ] Video announcement and tutorials
-- [ ] Additional shell commands based on user feedback
-- [ ] Support for Python/TypeScript code execution (exploring)
-- [ ] Authentication and enterprise features
+**Connect only MCP Shell to your agent** — For best results, don't connect individual MCP servers directly to the agent alongside MCP Shell. When agents have direct access to tools, they may call them individually instead of composing efficient pipelines. MCP Shell can access all your MCP servers through ToolHive automatically.
+
+**Some agents need encouragement** — Most agents will use the shell naturally for complex tasks, but some may need a hint in their system prompt (e.g., "Use MCP Shell pipelines to combine multiple tool calls efficiently").
 
 ## FAQ
 
