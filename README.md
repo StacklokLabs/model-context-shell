@@ -92,11 +92,3 @@ This is an experimental project. Contributions, ideas, and feedback are welcome!
 ## License
 
 Apache License 2.0 - see [LICENSE](LICENSE) for details.
-
-## Credits
-
-Developed by Dániel Kántor at ToolHive.
-
----
-
-**Note**: This is an experimental project exploring new patterns for AI agent coordination. The approach has proven effective in testing but needs broader testing and community feedback.
