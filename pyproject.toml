@@ -12,6 +12,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "pyright>=1.1.391",
     "pytest>=8.4.2",
     "pytest-asyncio>=1.2.0",
     "pytest-cov>=7.0.0",
@@ -47,3 +48,8 @@ branch = true
 [tool.coverage.report]
 show_missing = true
 skip_covered = false
+
+[tool.pyright]
+include = ["main.py", "mcp_client.py", "shell_engine.py", "toolhive_client.py", "tests"]
+pythonVersion = "3.13"
+typeCheckingMode = "standard"
