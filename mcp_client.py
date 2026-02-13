@@ -1,10 +1,13 @@
 import asyncio
+import os
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 from mcp import ClientSession
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamablehttp_client
+from mcp.shared.exceptions import McpError
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8080
@@ -12,6 +15,80 @@ DEFAULT_PORT = 8080
 # Default timeout for tool calls (30 seconds)
 # This prevents tool calls from hanging forever if a server is unresponsive
 DEFAULT_TOOL_TIMEOUT = 30.0
+
+
+def _is_running_in_docker() -> bool:
+    """Check if we're running inside a Docker container.
+
+    Checks the RUNNING_IN_DOCKER environment variable (set in Dockerfile).
+    """
+    return os.getenv("RUNNING_IN_DOCKER") == "1"
+
+
+class _TolerantStream(httpx.AsyncByteStream):
+    """
+    Stream wrapper that tolerates incomplete response errors.
+
+    Some remote SSE servers (behind proxies/CDNs) close POST response connections
+    before sending the complete response body. This is not a problem for SSE
+    because the actual MCP response arrives via the SSE stream, not the POST response.
+    """
+
+    def __init__(self, original_stream: httpx.AsyncByteStream):
+        self._original: httpx.AsyncByteStream = original_stream
+
+    async def __aiter__(self):
+        try:
+            async for chunk in self._original:
+                yield chunk
+        except httpx.RemoteProtocolError:
+            # Server closed connection before body was sent - this is OK
+            # for SSE since the actual response comes via the SSE stream
+            pass
+
+    async def aclose(self):
+        await self._original.aclose()
+
+
+class _TolerantTransport(httpx.AsyncHTTPTransport):
+    """
+    Custom transport that tolerates servers closing POST response connections early.
+
+    This is needed for some remote SSE MCP servers where the proxy/CDN closes
+    the POST response connection before the body is fully sent. The actual MCP
+    response arrives via SSE, so the POST response body is not needed.
+    """
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        response = await super().handle_async_request(request)
+
+        # For POST requests, wrap the stream to tolerate incomplete responses
+        if request.method == "POST":
+            original_stream = response.stream
+            if isinstance(original_stream, httpx.AsyncByteStream):
+                response.stream = _TolerantStream(original_stream)
+
+        return response
+
+
+def _create_tolerant_httpx_client(
+    headers: dict[str, str] | None = None,
+    timeout: httpx.Timeout | None = None,
+    auth: httpx.Auth | None = None,
+) -> httpx.AsyncClient:
+    """
+    Create an httpx client that tolerates incomplete POST responses.
+
+    This is needed for remote SSE MCP servers where the server/proxy closes
+    the POST response connection before the body is sent. The actual MCP
+    response arrives via SSE, so this is safe to ignore.
+    """
+    return httpx.AsyncClient(
+        headers=headers,
+        timeout=timeout,
+        auth=auth,
+        transport=_TolerantTransport(),
+    )
 
 
 async def get_workloads(
@@ -22,9 +99,9 @@ async def get_workloads(
 
     Also handles container networking by rewriting localhost URLs to use the
     actual ToolHive host, enabling inter-container communication.
+    Only rewrites URLs when actually running in Docker to avoid breaking
+    local runs (e.g. on macOS) when TOOLHIVE_HOST is set to host.docker.internal.
     """
-    from urllib.parse import urlparse
-
     base_url = f"http://{host}:{port}"
     endpoint = "/api/v1beta/workloads"
 
@@ -37,17 +114,17 @@ async def get_workloads(
         workloads = data.get("workloads", [])
 
         # Fix container networking: rewrite localhost URLs
-        # When running in a container, URLs with 'localhost' or '127.0.0.1'
-        # won't work for inter-container communication
-        for workload in workloads:
-            url = workload.get("url")
-            if url:
-                parsed_url = urlparse(url)
-                workload_host = parsed_url.hostname
+        # Only replace when actually running in Docker to avoid breaking
+        # local runs when TOOLHIVE_HOST is set to host.docker.internal
+        if _is_running_in_docker() and host not in ("localhost", "127.0.0.1"):
+            for workload in workloads:
+                url = workload.get("url")
+                if url:
+                    parsed_url = urlparse(url)
+                    workload_host = parsed_url.hostname
 
-                # If the workload uses localhost, replace with actual ToolHive host
-                if workload_host in ("localhost", "127.0.0.1"):
-                    workload["url"] = url.replace(workload_host, host)
+                    if workload_host in ("localhost", "127.0.0.1"):
+                        workload["url"] = url.replace(workload_host, host)
 
         return workloads
 
@@ -93,7 +170,9 @@ async def list_tools_from_server(workload: dict[str, Any]) -> dict[str, Any]:
         # ToolHive can proxy servers via SSE even if the original transport is stdio
         if proxy_mode == "sse":
             # Use SSE client for SSE proxy
-            async with sse_client(url) as (read, write):
+            async with sse_client(
+                url, httpx_client_factory=_create_tolerant_httpx_client
+            ) as (read, write):
                 async with ClientSession(read, write) as session:
                     await session.initialize()
                     tools_response = await session.list_tools()
@@ -155,6 +234,23 @@ async def list_tools_from_server(workload: dict[str, Any]) -> dict[str, Any]:
                 "error": f"Transport/proxy mode '{proxy_mode or transport_type}' not yet supported",
             }
 
+    except TimeoutError:
+        return {
+            "workload": name,
+            "status": "error",
+            "tools": [],
+            "error": "Connection timed out",
+        }
+    except ExceptionGroup as eg:
+        error_msg = _extract_error_from_exception_group(eg)
+        return {"workload": name, "status": "error", "tools": [], "error": error_msg}
+    except McpError as e:
+        return {
+            "workload": name,
+            "status": "error",
+            "tools": [],
+            "error": f"MCP protocol error: {e}",
+        }
     except Exception as e:
         import traceback
 
@@ -162,15 +258,41 @@ async def list_tools_from_server(workload: dict[str, Any]) -> dict[str, Any]:
         return {"workload": name, "status": "error", "tools": [], "error": error_msg}
 
 
+def _extract_error_from_exception_group(eg: ExceptionGroup) -> str:
+    """Extract meaningful error message from ExceptionGroup (Python 3.13+)."""
+    exceptions: list[BaseException] = []
+
+    def collect_exceptions(exc_group: ExceptionGroup):
+        for exc in exc_group.exceptions:
+            if isinstance(exc, ExceptionGroup):
+                collect_exceptions(exc)
+            else:
+                exceptions.append(exc)
+
+    collect_exceptions(eg)
+
+    # Look for McpError first, as it's the most specific
+    for exc in exceptions:
+        if isinstance(exc, McpError):
+            return f"MCP protocol error: {exc}"
+
+    # If no McpError found, return the first exception message
+    if exceptions:
+        first_exc = exceptions[0]
+        return f"{type(first_exc).__name__}: {first_exc}"
+
+    return str(eg)
+
+
 async def get_tool_details_from_server(
-    workload_name: str, tool_name: str, host: str = None, port: int = None
+    workload_name: str, tool_name: str, host: str | None = None, port: int | None = None
 ) -> dict[str, Any]:
     """Get detailed information about a specific tool from a workload"""
     # Discover ToolHive if not already done
     if host is None or port is None:
-        from toolhive_client import discover_toolhive
+        from toolhive_client import discover_toolhive_async
 
-        host, port = discover_toolhive(host, port)
+        host, port = await discover_toolhive_async(host, port)
 
     # Get workload details
     workloads = await get_workloads(host, port)
@@ -189,7 +311,9 @@ async def get_tool_details_from_server(
 
         # Connect and list tools to find the requested tool
         if proxy_mode == "sse":
-            async with sse_client(url) as (read, write):
+            async with sse_client(
+                url, httpx_client_factory=_create_tolerant_httpx_client
+            ) as (read, write):
                 async with ClientSession(read, write) as session:
                     await session.initialize()
                     tools_response = await session.list_tools()
@@ -267,9 +391,9 @@ async def call_tool(
     # This makes it work in containers and local when thv serve chooses a dynamic port
     try:
         if host == DEFAULT_HOST and port == DEFAULT_PORT:
-            from toolhive_client import discover_toolhive
+            from toolhive_client import discover_toolhive_async
 
-            host, port = discover_toolhive(host=None, port=None)
+            host, port = await discover_toolhive_async(host=None, port=None)
     except Exception:
         # Fall back to provided/defaults if discovery fails
         pass
@@ -296,7 +420,9 @@ async def call_tool(
 
     # Connect and call the tool with timeout
     if proxy_mode == "sse":
-        async with sse_client(url) as (read, write):
+        async with sse_client(
+            url, httpx_client_factory=_create_tolerant_httpx_client
+        ) as (read, write):
             async with ClientSession(read, write) as session:
                 await session.initialize()
                 result = await asyncio.wait_for(
@@ -353,9 +479,9 @@ async def batch_call_tool(
     # Resolve ToolHive connection dynamically when using defaults
     try:
         if host == DEFAULT_HOST and port == DEFAULT_PORT:
-            from toolhive_client import discover_toolhive
+            from toolhive_client import discover_toolhive_async
 
-            host, port = discover_toolhive(host=None, port=None)
+            host, port = await discover_toolhive_async(host=None, port=None)
     except Exception:
         # Fall back to provided/defaults if discovery fails
         pass
@@ -424,7 +550,9 @@ async def batch_call_tool(
                 raise RuntimeError("\n".join(error_parts)) from e
 
     if proxy_mode == "sse":
-        async with sse_client(url) as (read, write):
+        async with sse_client(
+            url, httpx_client_factory=_create_tolerant_httpx_client
+        ) as (read, write):
             async with ClientSession(read, write) as session:
                 await session.initialize()
                 await execute_calls(session)

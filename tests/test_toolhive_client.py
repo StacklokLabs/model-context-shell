@@ -108,6 +108,10 @@ class TestInitialize:
         """Test complete initialization flow"""
         mock_atexit = mocker.patch("atexit.register")
         mock_start = mocker.patch("toolhive_client.start_thv_serve")
+        mocker.patch(
+            "toolhive_client.discover_toolhive",
+            return_value=("127.0.0.1", 8080),
+        )
         mock_list = mocker.patch("toolhive_client.list_workloads")
         mock_list.return_value = {
             "success": True,
@@ -129,6 +133,10 @@ class TestInitialize:
         """Test initialization when workload listing fails"""
         mocker.patch("atexit.register")
         mocker.patch("toolhive_client.start_thv_serve")
+        mocker.patch(
+            "toolhive_client.discover_toolhive",
+            return_value=("127.0.0.1", 8080),
+        )
         mock_list = mocker.patch("toolhive_client.list_workloads")
         mock_list.return_value = {"success": False, "error": "Connection refused"}
         # Mock mcp_client.list_tools to prevent coroutine creation
