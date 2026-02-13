@@ -149,9 +149,9 @@ async def _list_all_tools_impl() -> str:
     """Implementation of list_all_tools (extracted for testing)"""
     # Discover ToolHive connection to avoid assuming default ports
     try:
-        from toolhive_client import discover_toolhive
+        from toolhive_client import discover_toolhive_async
 
-        host, port = discover_toolhive()
+        host, port = await discover_toolhive_async()
         tools_list = await mcp_client.list_tools(host=host, port=port)
     except Exception:
         # Fallback to defaults if discovery fails
@@ -262,8 +262,11 @@ if __name__ == "__main__":
         sys.exit(1)
 
     # Check if running in container (ToolHive will manage thv serve)
-    # If TOOLHIVE_HOST is set, we're in container mode and shouldn't start thv serve
-    in_container = os.environ.get("TOOLHIVE_HOST") is not None
+    # If TOOLHIVE_HOST is set or RUNNING_IN_DOCKER=1, we're in container mode
+    in_container = (
+        os.environ.get("TOOLHIVE_HOST") is not None
+        or os.environ.get("RUNNING_IN_DOCKER") == "1"
+    )
 
     if not in_container:
         # Local development mode: Initialize ToolHive client - starts thv serve and lists workloads

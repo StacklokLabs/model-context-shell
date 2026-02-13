@@ -339,7 +339,7 @@ class TestGetToolDetails:
 
         # Mock discover_toolhive to return host and port
         mocker.patch(
-            "toolhive_client.discover_toolhive", return_value=("localhost", 8080)
+            "toolhive_client.discover_toolhive_async", return_value=("localhost", 8080)
         )
 
         # Mock the MCP client
@@ -383,7 +383,7 @@ class TestGetToolDetails:
         """Test get_tool_details when workload doesn't exist"""
         mocker.patch("mcp_client.get_workloads", return_value=[])
         mocker.patch(
-            "toolhive_client.discover_toolhive", return_value=("localhost", 8080)
+            "toolhive_client.discover_toolhive_async", return_value=("localhost", 8080)
         )
 
         result = await mcp_client.get_tool_details_from_server(
@@ -404,7 +404,7 @@ class TestGetToolDetails:
 
         mocker.patch("mcp_client.get_workloads", return_value=[workload])
         mocker.patch(
-            "toolhive_client.discover_toolhive", return_value=("localhost", 8080)
+            "toolhive_client.discover_toolhive_async", return_value=("localhost", 8080)
         )
 
         # Mock the MCP client with a different tool
@@ -449,7 +449,7 @@ class TestGetToolDetails:
 
         mocker.patch("mcp_client.get_workloads", return_value=[workload])
         mocker.patch(
-            "toolhive_client.discover_toolhive", return_value=("localhost", 8080)
+            "toolhive_client.discover_toolhive_async", return_value=("localhost", 8080)
         )
 
         # Mock the MCP client
@@ -494,7 +494,7 @@ class TestGetToolDetails:
 
         mocker.patch("mcp_client.get_workloads", return_value=[workload])
         mocker.patch(
-            "toolhive_client.discover_toolhive", return_value=("localhost", 8080)
+            "toolhive_client.discover_toolhive_async", return_value=("localhost", 8080)
         )
         mocker.patch(
             "mcp_client.streamablehttp_client",
@@ -524,7 +524,7 @@ class TestCallTool:
 
         mocker.patch("mcp_client.get_workloads", return_value=[workload])
         mocker.patch(
-            "toolhive_client.discover_toolhive", return_value=("localhost", 8080)
+            "toolhive_client.discover_toolhive_async", return_value=("localhost", 8080)
         )
 
         # Mock the MCP client
@@ -566,7 +566,7 @@ class TestCallTool:
 
         mocker.patch("mcp_client.get_workloads", return_value=[workload])
         mocker.patch(
-            "toolhive_client.discover_toolhive", return_value=("localhost", 8080)
+            "toolhive_client.discover_toolhive_async", return_value=("localhost", 8080)
         )
 
         mock_result = MagicMock()
@@ -596,7 +596,7 @@ class TestCallTool:
         """Test call_tool when workload doesn't exist"""
         mocker.patch("mcp_client.get_workloads", return_value=[])
         mocker.patch(
-            "toolhive_client.discover_toolhive", return_value=("localhost", 8080)
+            "toolhive_client.discover_toolhive_async", return_value=("localhost", 8080)
         )
 
         with pytest.raises(ValueError, match="not found"):
@@ -613,7 +613,7 @@ class TestCallTool:
 
         mocker.patch("mcp_client.get_workloads", return_value=[workload])
         mocker.patch(
-            "toolhive_client.discover_toolhive", return_value=("localhost", 8080)
+            "toolhive_client.discover_toolhive_async", return_value=("localhost", 8080)
         )
 
         with pytest.raises(RuntimeError, match="not running"):
@@ -630,7 +630,7 @@ class TestCallTool:
 
         mocker.patch("mcp_client.get_workloads", return_value=[workload])
         mocker.patch(
-            "toolhive_client.discover_toolhive", return_value=("localhost", 8080)
+            "toolhive_client.discover_toolhive_async", return_value=("localhost", 8080)
         )
 
         with pytest.raises(ValueError, match="No URL"):
@@ -647,7 +647,7 @@ class TestCallTool:
 
         mocker.patch("mcp_client.get_workloads", return_value=[workload])
         mocker.patch(
-            "toolhive_client.discover_toolhive", return_value=("localhost", 8080)
+            "toolhive_client.discover_toolhive_async", return_value=("localhost", 8080)
         )
 
         with pytest.raises(ValueError, match="not supported"):
@@ -666,7 +666,7 @@ class TestCallTool:
             "mcp_client.get_workloads", return_value=[workload]
         )
         mocker.patch(
-            "toolhive_client.discover_toolhive",
+            "toolhive_client.discover_toolhive_async",
             side_effect=Exception("Discovery failed"),
         )
 
@@ -698,8 +698,8 @@ class TestCallTool:
 class TestGetWorkloadsUrlRewriting:
     """Test localhost URL rewriting for container networking"""
 
-    async def test_rewrites_localhost_urls(self, mocker):
-        """Test that localhost URLs are rewritten to use the actual host"""
+    async def test_rewrites_localhost_urls_when_in_docker(self, mocker):
+        """Test that localhost URLs are rewritten when running in Docker"""
         mock_response = MagicMock()
         mock_response.json.return_value = {
             "workloads": [
@@ -717,6 +717,7 @@ class TestGetWorkloadsUrlRewriting:
         mock_client = MagicMock()
         mock_client.__aenter__.return_value.get = AsyncMock(return_value=mock_response)
         mocker.patch("httpx.AsyncClient", return_value=mock_client)
+        mocker.patch("mcp_client._is_running_in_docker", return_value=True)
 
         # Call with a different host (simulating container environment)
         result = await mcp_client.get_workloads(host="192.168.1.100", port=8080)
@@ -724,6 +725,28 @@ class TestGetWorkloadsUrlRewriting:
         # URLs should be rewritten
         assert result[0]["url"] == "http://192.168.1.100:9000/mcp"
         assert result[1]["url"] == "http://192.168.1.100:9001/sse"
+
+    async def test_no_rewrite_when_not_in_docker(self, mocker):
+        """Test that localhost URLs are NOT rewritten when not in Docker (e.g. macOS)"""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "workloads": [
+                {
+                    "name": "workload1",
+                    "url": "http://localhost:9000/mcp",
+                },
+            ]
+        }
+
+        mock_client = MagicMock()
+        mock_client.__aenter__.return_value.get = AsyncMock(return_value=mock_response)
+        mocker.patch("httpx.AsyncClient", return_value=mock_client)
+        mocker.patch("mcp_client._is_running_in_docker", return_value=False)
+
+        # Even with a non-localhost host, URLs should NOT be rewritten outside Docker
+        result = await mcp_client.get_workloads(host="192.168.1.100", port=8080)
+
+        assert result[0]["url"] == "http://localhost:9000/mcp"
 
     async def test_preserves_non_localhost_urls(self, mocker):
         """Test that non-localhost URLs are not rewritten"""
@@ -740,6 +763,7 @@ class TestGetWorkloadsUrlRewriting:
         mock_client = MagicMock()
         mock_client.__aenter__.return_value.get = AsyncMock(return_value=mock_response)
         mocker.patch("httpx.AsyncClient", return_value=mock_client)
+        mocker.patch("mcp_client._is_running_in_docker", return_value=True)
 
         result = await mcp_client.get_workloads(host="192.168.1.100", port=8080)
 
@@ -767,7 +791,7 @@ class TestBatchCallTool:
 
         mocker.patch("mcp_client.get_workloads", return_value=[workload])
         mocker.patch(
-            "toolhive_client.discover_toolhive", return_value=("localhost", 8080)
+            "toolhive_client.discover_toolhive_async", return_value=("localhost", 8080)
         )
 
         # Track how many times we open a connection
@@ -849,7 +873,7 @@ class TestBatchCallTool:
 
         mocker.patch("mcp_client.get_workloads", return_value=[workload])
         mocker.patch(
-            "toolhive_client.discover_toolhive", return_value=("localhost", 8080)
+            "toolhive_client.discover_toolhive_async", return_value=("localhost", 8080)
         )
 
         connection_open_count = 0
@@ -865,7 +889,7 @@ class TestBatchCallTool:
         mock_client_session.__aenter__ = AsyncMock(return_value=mock_session)
         mock_client_session.__aexit__ = AsyncMock()
 
-        def tracking_sse_client(url):
+        def tracking_sse_client(url, **kwargs):
             nonlocal connection_open_count
             connection_open_count += 1
             mock_sse = MagicMock()
@@ -888,7 +912,7 @@ class TestBatchCallTool:
         """Test batch_call_tool raises error for non-existent workload."""
         mocker.patch("mcp_client.get_workloads", return_value=[])
         mocker.patch(
-            "toolhive_client.discover_toolhive", return_value=("localhost", 8080)
+            "toolhive_client.discover_toolhive_async", return_value=("localhost", 8080)
         )
 
         with pytest.raises(ValueError, match="not found"):
@@ -910,7 +934,7 @@ class TestBatchCallToolPartialFailure:
 
         mocker.patch("mcp_client.get_workloads", return_value=[workload])
         mocker.patch(
-            "toolhive_client.discover_toolhive", return_value=("localhost", 8080)
+            "toolhive_client.discover_toolhive_async", return_value=("localhost", 8080)
         )
 
         call_count = 0
@@ -974,7 +998,7 @@ class TestBatchCallToolPartialFailure:
 
         mocker.patch("mcp_client.get_workloads", return_value=[workload])
         mocker.patch(
-            "toolhive_client.discover_toolhive", return_value=("localhost", 8080)
+            "toolhive_client.discover_toolhive_async", return_value=("localhost", 8080)
         )
 
         call_count = 0
@@ -1039,7 +1063,7 @@ class TestToolCallTimeout:
 
         mocker.patch("mcp_client.get_workloads", return_value=[workload])
         mocker.patch(
-            "toolhive_client.discover_toolhive", return_value=("localhost", 8080)
+            "toolhive_client.discover_toolhive_async", return_value=("localhost", 8080)
         )
 
         # Create a session that hangs forever on call_tool
@@ -1105,7 +1129,7 @@ class TestToolCallTimeout:
 
         mocker.patch("mcp_client.get_workloads", return_value=[workload])
         mocker.patch(
-            "toolhive_client.discover_toolhive", return_value=("localhost", 8080)
+            "toolhive_client.discover_toolhive_async", return_value=("localhost", 8080)
         )
 
         # Create a session that hangs on call_tool
