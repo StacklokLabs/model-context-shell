@@ -1,3 +1,5 @@
+from typing import Literal, cast
+
 from fastmcp import FastMCP
 
 import mcp_client
@@ -315,4 +317,5 @@ if __name__ == "__main__":
         print(f"   Transport: {transport}")
         print(f"   Bind address: {host}")
         print(f"   Connect via: http://localhost:{port}{endpoint}\n")
-        mcp.run(transport=transport, host=host, port=port)
+        Transport = Literal["stdio", "sse", "streamable-http"]
+        mcp.run(transport=cast(Transport, transport), host=host, port=port)

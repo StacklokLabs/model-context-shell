@@ -163,7 +163,7 @@ async def list_tools_from_server(workload: dict[str, Any]) -> dict[str, Any]:
 
 
 async def get_tool_details_from_server(
-    workload_name: str, tool_name: str, host: str = None, port: int = None
+    workload_name: str, tool_name: str, host: str | None = None, port: int | None = None
 ) -> dict[str, Any]:
     """Get detailed information about a specific tool from a workload"""
     # Discover ToolHive if not already done

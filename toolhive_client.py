@@ -94,8 +94,8 @@ def _scan_for_toolhive(
 
 
 def discover_toolhive(
-    host: str = None,
-    port: int = None,
+    host: str | None = None,
+    port: int | None = None,
     scan_port_start: int = DEFAULT_SCAN_PORT_START,
     scan_port_end: int = DEFAULT_SCAN_PORT_END,
     skip_port_discovery: bool = False,
@@ -234,8 +234,8 @@ def initialize():
                 # tools may be a list of dicts ({"name": ..., "description": ...})
                 # or a list of strings (back-compat). Normalize to names for display.
                 try:
-                    names = [
-                        (t.get("name") if isinstance(t, dict) else str(t))
+                    names: list[str] = [
+                        (t.get("name", "") if isinstance(t, dict) else str(t))
                         for t in tools
                     ]
                 except Exception:

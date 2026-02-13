@@ -91,9 +91,10 @@ class ShellEngine:
         tool_caller: Callable[[str, str, dict[str, Any]], Awaitable[Any]],
         batch_tool_caller: Callable[
             [str, str, list[dict[str, Any]]], Awaitable[list[Any]]
-        ] = None,
-        allowed_commands: list[str] = None,
-        default_timeout: float = None,
+        ]
+        | None = None,
+        allowed_commands: list[str] | None = None,
+        default_timeout: float | None = None,
     ):
         """
         Initialize the ShellEngine.
@@ -190,7 +191,7 @@ class ShellEngine:
         args: list[str],
         upstream: Iterable[str],
         for_each: bool = False,
-        timeout: float = None,
+        timeout: float | None = None,
     ) -> Generator[str]:
         """Run a shell command as a streaming stage, consuming upstream lazily."""
         # Validate and set timeout
