@@ -65,15 +65,11 @@ async def _is_toolhive_available(
     """
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.get(
-                f"http://{host}:{port}/api/v1beta/version"
-            )
+            response = await client.get(f"http://{host}:{port}/api/v1beta/version")
             response.raise_for_status()
             data = response.json()
     except (httpx.HTTPError, OSError) as e:
-        raise ConnectionError(
-            f"ToolHive not available at {host}:{port}: {e}"
-        )
+        raise ConnectionError(f"ToolHive not available at {host}:{port}: {e}")
 
     if not isinstance(data, dict) or "version" not in data:
         raise ConnectionError(
@@ -117,9 +113,7 @@ async def _scan_for_toolhive_async(
         )
 
     found_ports = [
-        result
-        for result in task_outcomes
-        if not isinstance(result, BaseException)
+        result for result in task_outcomes if not isinstance(result, BaseException)
     ]
 
     if found_ports:
@@ -186,9 +180,7 @@ async def discover_toolhive_async(
         if not found:
             # Fall back to scanning
             print(f"Port {port} not available, scanning for ToolHive...")
-            port = await _scan_for_toolhive_async(
-                host, scan_port_start, scan_port_end
-            )
+            port = await _scan_for_toolhive_async(host, scan_port_start, scan_port_end)
     else:
         # Scan for ToolHive with host fallbacks
         scan_hosts = [host]

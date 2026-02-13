@@ -170,7 +170,9 @@ async def list_tools_from_server(workload: dict[str, Any]) -> dict[str, Any]:
         # ToolHive can proxy servers via SSE even if the original transport is stdio
         if proxy_mode == "sse":
             # Use SSE client for SSE proxy
-            async with sse_client(url, httpx_client_factory=_create_tolerant_httpx_client) as (read, write):
+            async with sse_client(
+                url, httpx_client_factory=_create_tolerant_httpx_client
+            ) as (read, write):
                 async with ClientSession(read, write) as session:
                     await session.initialize()
                     tools_response = await session.list_tools()
@@ -309,7 +311,9 @@ async def get_tool_details_from_server(
 
         # Connect and list tools to find the requested tool
         if proxy_mode == "sse":
-            async with sse_client(url, httpx_client_factory=_create_tolerant_httpx_client) as (read, write):
+            async with sse_client(
+                url, httpx_client_factory=_create_tolerant_httpx_client
+            ) as (read, write):
                 async with ClientSession(read, write) as session:
                     await session.initialize()
                     tools_response = await session.list_tools()
@@ -416,7 +420,9 @@ async def call_tool(
 
     # Connect and call the tool with timeout
     if proxy_mode == "sse":
-        async with sse_client(url, httpx_client_factory=_create_tolerant_httpx_client) as (read, write):
+        async with sse_client(
+            url, httpx_client_factory=_create_tolerant_httpx_client
+        ) as (read, write):
             async with ClientSession(read, write) as session:
                 await session.initialize()
                 result = await asyncio.wait_for(
@@ -544,7 +550,9 @@ async def batch_call_tool(
                 raise RuntimeError("\n".join(error_parts)) from e
 
     if proxy_mode == "sse":
-        async with sse_client(url, httpx_client_factory=_create_tolerant_httpx_client) as (read, write):
+        async with sse_client(
+            url, httpx_client_factory=_create_tolerant_httpx_client
+        ) as (read, write):
             async with ClientSession(read, write) as session:
                 await session.initialize()
                 await execute_calls(session)
