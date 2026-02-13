@@ -70,15 +70,16 @@ async def _is_toolhive_available(
             )
             response.raise_for_status()
             data = response.json()
-            if not isinstance(data, dict) or "version" not in data:
-                raise ConnectionError(
-                    f"Port {port} on host {host} did not respond with ToolHive format"
-                )
-            return (port, port)
     except (httpx.HTTPError, OSError) as e:
         raise ConnectionError(
             f"ToolHive not available at {host}:{port}: {e}"
         )
+
+    if not isinstance(data, dict) or "version" not in data:
+        raise ConnectionError(
+            f"Port {port} on host {host} did not respond with ToolHive format"
+        )
+    return (port, port)
 
 
 async def _scan_for_toolhive_async(
@@ -109,7 +110,7 @@ async def _scan_for_toolhive_async(
             ),
             timeout=total_timeout,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         raise ConnectionError(
             f"ToolHive port scan timed out after {total_timeout}s "
             f"on {host} in port range {scan_port_start}-{scan_port_end}"

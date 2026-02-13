@@ -232,7 +232,7 @@ async def list_tools_from_server(workload: dict[str, Any]) -> dict[str, Any]:
                 "error": f"Transport/proxy mode '{proxy_mode or transport_type}' not yet supported",
             }
 
-    except asyncio.TimeoutError:
+    except TimeoutError:
         return {
             "workload": name,
             "status": "error",
