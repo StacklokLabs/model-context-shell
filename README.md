@@ -63,6 +63,14 @@ Instead of 7+ separate tool calls loading all Pokemon data into context, the age
 
 In practice, agents don't construct the perfect pipeline on the first try. They typically run a few exploratory queries first to understand the shape of the data before building the final pipeline. To keep this process fast and cheap, the server includes a preview stage powered by [headson](https://github.com/kantord/headson) that returns a compact structural summary of the data — enough for the agent to plan its transformations without loading the full dataset into context.
 
+### Design
+
+Agents already have access to full shell environments and can call any CLI tool, which has significant overlap with what MCP tools provide. Rather than duplicating that, Model Context Shell explores whether similar workflows can be achieved in a safer, simpler MCP-native environment. Patterns like parallel map-reduce over tool call results are not common today because MCP doesn't natively support them, but they seem like a natural fit for coordinating tool calls — imagine fetching all console errors via a Chrome DevTools MCP server and creating a separate GitHub issue for each one. A system tailored to these patterns can make them first-class operations.
+
+The execution engine works with JSON pipeline definitions directly — agents construct pipelines from the MCP tool schema alone, without needing shell syntax. Commands are never passed through a shell interpreter; each command and its arguments are passed as separate elements to the underlying process (`shell=False`), eliminating shell injection risks entirely. Data flows between stages as JSON, preserving types through the pipeline rather than reducing everything to strings. MCP tool arguments are validated against their JSON Schema by the receiving server, giving agents type-checked feedback when they construct pipelines incorrectly.
+
+The result is a more constrained system compared to a general-purpose shell — only a fixed set of data transformation commands is available, and all execution happens either inside a container or a [bubblewrap](https://github.com/containers/bubblewrap) sandbox.
+
 ### How it works
 
 Model Context Shell is packaged as an MCP server, which makes it easy to use with any agent that supports the protocol. It could also be packaged as a library built directly into an agent.
