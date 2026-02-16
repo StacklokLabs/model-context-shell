@@ -19,7 +19,38 @@ This single pipeline fetches a list, extracts URLs, fetches each one, filters th
 
 ### Why this matters
 
-[MCP](https://modelcontextprotocol.io/) is great — standardized interfaces, structured data, extensible ecosystem. But for complex workflows, agents hit real limits:
+[MCP](https://modelcontextprotocol.io/) is great — standardized interfaces, structured data, extensible ecosystem. But for complex workflows, the agent has to orchestrate each tool call individually, loading all intermediate results into context:
+
+```mermaid
+flowchart TB
+    A[Agent]
+    M[MCP Tool]
+
+    A <--> M
+```
+
+Model Context Shell adds a pipeline layer between the agent and the tools. The agent sends a single pipeline, and the server coordinates the tools — only the final result goes back to the agent:
+
+```mermaid
+flowchart TB
+    A[Agent]
+    S[Shell]
+
+    T1[Tool A]
+    T2[Tool B]
+    T3[Tool C]
+
+    A <--> S
+
+    S --> T1
+    T1 --> S
+
+    S --> T2
+    T2 --> S
+
+    S --> T3
+    T3 --> S
+```
 
 | | Without | With |
 |---|---|---|
