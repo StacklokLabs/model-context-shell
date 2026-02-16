@@ -262,11 +262,8 @@ if __name__ == "__main__":
         sys.exit(1)
 
     # Check if running in container (ToolHive will manage thv serve)
-    # If TOOLHIVE_HOST is set or RUNNING_IN_DOCKER=1, we're in container mode
-    in_container = (
-        os.environ.get("TOOLHIVE_HOST") is not None
-        or os.environ.get("RUNNING_IN_DOCKER") == "1"
-    )
+    # If TOOLHIVE_HOST is set, we're in container mode and shouldn't start thv serve
+    in_container = os.environ.get("TOOLHIVE_HOST") is not None
 
     if not in_container:
         # Local development mode: Initialize ToolHive client - starts thv serve and lists workloads
@@ -309,7 +306,7 @@ if __name__ == "__main__":
 
     if "--host" not in sys.argv:
         mcp_host_env = os.environ.get("MCP_HOST")
-        if mcp_host_env:
+        if mcp_host_env and not in_container:
             host = mcp_host_env
 
     if transport == "stdio":
