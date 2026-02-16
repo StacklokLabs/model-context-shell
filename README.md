@@ -3,19 +3,20 @@
 [![CI](https://github.com/StacklokLabs/mcp-shell/actions/workflows/ci.yml/badge.svg)](https://github.com/StacklokLabs/mcp-shell/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
-**Unix-style pipelines for MCP tools — coordinate thousands of tool calls in a single request**
+**Unix-style pipelines for MCP tools — compose complex tool workflows as single pipeline requests**
 
 ## Introduction
 
-Model Context Shell is an [MCP](https://modelcontextprotocol.io/) server that lets AI agents compose tool calls using Unix shell patterns. Instead of the agent orchestrating each tool call individually (loading all intermediate data into context), agents can express complex workflows as pipelines that execute server-side.
+Model Context Shell is an [MCP](https://modelcontextprotocol.io/) server that lets AI agents compose MCP tool calls similar to Unix shell scripting. Instead of the agent orchestrating each tool call individually (loading all intermediate data into context), agents can express complex workflows as pipelines that execute server-side.
 
-The agent writes pipelines that conceptually work like this:
+For example, an agent can express a multi-step workflow as a single pipeline:
 
+```mermaid
+flowchart LR
+    A[Fetch users] --> B[jq: extract profile URLs] --> C[for_each: fetch profiles] --> D[jq: filter active, sort]
 ```
-fetch users → jq (extract profile URLs) → for_each fetch → jq (filter active, sort)
-```
 
-This single pipeline fetches a list, extracts URLs, fetches each one, filters the results, and returns only the final output to the agent — no intermediate data in context.
+This pipeline fetches a list, extracts URLs, fetches each one, filters the results, and returns only the final output to the agent — no intermediate data in context.
 
 ### Why this matters
 
