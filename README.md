@@ -44,7 +44,7 @@ flowchart LR
 | | Without | With |
 |---|---|---|
 | **Orchestration** | Agent coordinates every tool call, loading intermediate results into context | Single pipeline request, only final result returned |
-| **Composition** | Tools combined through LLM reasoning | Native Unix-style piping between tools |
+| **Composition** | Tools combined by the agent one call at a time | Native Unix-style piping between tools |
 | **Data scale** | Limited by context window | Streaming/iterator model handles datasets larger than memory |
 | **Reliability** | LLM-dependent control flow | Deterministic shell pipeline execution |
 | **Permissions** | Complex tasks push toward full shell access | Sandboxed execution with allowed commands only |
@@ -69,7 +69,7 @@ Agents already have access to full shell environments and can call any CLI tool,
 
 The execution engine works with JSON pipeline definitions directly — agents construct pipelines from the MCP tool schema alone, without needing shell syntax. Commands are never passed through a shell interpreter; each command and its arguments are passed as separate elements to the underlying process (`shell=False`), eliminating shell injection risks entirely. Data flows between stages as JSON, preserving types through the pipeline rather than reducing everything to strings. MCP tool arguments are validated against their JSON Schema by the receiving server, giving agents type-checked feedback when they construct pipelines incorrectly.
 
-The result is a more constrained system compared to a general-purpose shell — only a fixed set of data transformation commands is available, and all execution happens either inside a container or a [bubblewrap](https://github.com/containers/bubblewrap) sandbox.
+The result is a more constrained system compared to a general-purpose shell — only a fixed set of data transformation commands is available, and all execution happens inside a container.
 
 ### How it works
 
@@ -142,7 +142,7 @@ Once running, Model Context Shell is available to any AI agent that ToolHive sup
 
 ## Security
 
-ToolHive runs Model Context Shell in an isolated container, so shell commands have no access to the host filesystem or network — only to explicitly configured MCP servers.
+ToolHive runs Model Context Shell in an isolated container, so shell commands have no access to the host filesystem or network. The MCP servers it coordinates also run in their own separate containers, managed by ToolHive.
 
 - **Allowed commands only**: A fixed whitelist of safe, read-only data transformation commands (`jq`, `grep`, `sed`, `awk`, `sort`, `uniq`, `cut`, `wc`, `head`, `tail`, `tr`, `date`, `bc`, `paste`, `shuf`, `join`, `sleep`)
 - **No shell injection**: Commands are executed with `shell=False`, arguments passed separately
