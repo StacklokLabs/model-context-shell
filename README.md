@@ -7,13 +7,13 @@
 
 ## Introduction
 
-Model Context Shell is an [MCP](https://modelcontextprotocol.io/) server that lets AI agents compose MCP tool calls similar to Unix shell scripting. Instead of the agent orchestrating each tool call individually (loading all intermediate data into context), agents can express complex workflows as pipelines that execute server-side.
+Model Context Shell is a system that lets AI agents compose [MCP](https://modelcontextprotocol.io/) tool calls similar to Unix shell scripting. Instead of the agent orchestrating each tool call individually (loading all intermediate data into context), agents can express complex workflows as pipelines that execute server-side.
 
 For example, an agent can express a multi-step workflow as a single pipeline:
 
 ```mermaid
 flowchart LR
-    A["Fetch users (MCP)"] --> B["Extract profile URLs (Shell)"] --> C["for_each: Fetch profile (MCP)"] --> D["Filter and sort (Shell)"]
+    A["Fetch users (MCP)"] --> B["Extract profile URLs (Shell)"] --> C["for_each (Shell)"] --> C1["Fetch profile (MCP)"] --> D["Filter and sort (Shell)"]
 ```
 
 This pipeline fetches a list, extracts URLs, fetches each one, filters the results, and returns only the final output to the agent — no intermediate data in context.
@@ -59,11 +59,13 @@ Instead of 7+ separate tool calls loading all Pokemon data into context, the age
 - Fetched each Pokemon's details (7 API calls)
 - Filtered by weight and formatted the results
 
-**Result**: 50%+ reduction in tokens and only the final answer loaded into context.
+**Result**: Only the final answer is loaded into context — no intermediate API responses.
 
 In practice, agents don't construct the perfect pipeline on the first try. They typically run a few exploratory queries first to understand the shape of the data before building the final pipeline. To keep this process fast and cheap, the server includes a preview stage powered by [headson](https://github.com/kantord/headson) that returns a compact structural summary of the data — enough for the agent to plan its transformations without loading the full dataset into context.
 
 ### How it works
+
+Model Context Shell is packaged as an MCP server, which makes it easy to use with any agent that supports the protocol. It could also be packaged as a library built directly into an agent.
 
 The server exposes four tools to the agent via MCP:
 
