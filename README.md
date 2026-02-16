@@ -13,7 +13,7 @@ For example, an agent can express a multi-step workflow as a single pipeline:
 
 ```mermaid
 flowchart LR
-    A[Fetch users] --> B[jq: extract profile URLs] --> C[for_each: fetch profiles] --> D[jq: filter active, sort]
+    A["Fetch users (MCP)"] --> B["Extract profile URLs (Shell)"] --> C["for_each: Fetch profile (MCP)"] --> D["Filter and sort (Shell)"]
 ```
 
 This pipeline fetches a list, extracts URLs, fetches each one, filters the results, and returns only the final output to the agent — no intermediate data in context.
@@ -24,7 +24,7 @@ This pipeline fetches a list, extracts URLs, fetches each one, filters the resul
 
 ```mermaid
 flowchart LR
-    subgraph without["Standard Tool Call Workflow"]
+    subgraph without["Standard Workflow"]
         direction TB
         A1[Agent]
         A1 <--> T1a[Tool A]
