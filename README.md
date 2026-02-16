@@ -23,14 +23,14 @@ This single pipeline fetches a list, extracts URLs, fetches each one, filters th
 
 ```mermaid
 flowchart LR
-    subgraph without["Without"]
+    subgraph without["Standard Tool Call Workflow"]
         direction TB
         A1[Agent]
         A1 <--> T1a[Tool A]
         A1 <--> T2a[Tool B]
         A1 <--> T3a[Tool C]
     end
-    subgraph with["With Model Context Shell"]
+    subgraph with["Model Context Shell"]
         direction TB
         A2[Agent] <--> S[Shell]
         S --> T1b[Tool A] --> S
