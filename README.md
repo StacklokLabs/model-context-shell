@@ -22,19 +22,22 @@ This single pipeline fetches a list, extracts URLs, fetches each one, filters th
 [MCP](https://modelcontextprotocol.io/) is great — standardized interfaces, structured data, extensible ecosystem. But for complex workflows, the agent has to orchestrate each tool call individually, loading all intermediate results into context. Model Context Shell adds a pipeline layer — the agent sends a single pipeline, and the server coordinates the tools, returning only the final result:
 
 ```mermaid
-flowchart TB
+flowchart LR
     subgraph without["Without"]
+        direction TB
         A1[Agent]
         A1 <--> T1a[Tool A]
         A1 <--> T2a[Tool B]
         A1 <--> T3a[Tool C]
     end
     subgraph with["With Model Context Shell"]
+        direction TB
         A2[Agent] <--> S[Shell]
         S --> T1b[Tool A] --> S
         S --> T2b[Tool B] --> S
         S --> T3b[Tool C] --> S
     end
+    without ~~~ with
 ```
 
 | | Without | With |
