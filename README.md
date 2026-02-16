@@ -48,7 +48,7 @@ The server exposes four tools to the agent via MCP:
 | Tool | Purpose |
 |---|---|
 | `execute_pipeline` | Execute a pipeline of tool calls and shell commands |
-| `list_all_tools` | Discover all tools available from MCP servers via [ToolHive](https://toolhive.ai) |
+| `list_all_tools` | Discover all tools available from MCP servers via [ToolHive](https://stacklok.com/download/) |
 | `get_tool_details` | Get the full schema and description for a specific tool |
 | `list_available_shell_commands` | Show the whitelist of allowed CLI commands |
 
@@ -86,7 +86,7 @@ Here is a full example — a pipeline that fetches users, extracts their profile
 
 ### Prerequisites
 
-- [ToolHive](https://toolhive.ai) (`thv`) — a runtime for managing MCP servers
+- [ToolHive](https://stacklok.com/download/) (`thv`) — a runtime for managing MCP servers
 
 ### Quick start
 
