@@ -19,37 +19,22 @@ This single pipeline fetches a list, extracts URLs, fetches each one, filters th
 
 ### Why this matters
 
-[MCP](https://modelcontextprotocol.io/) is great — standardized interfaces, structured data, extensible ecosystem. But for complex workflows, the agent has to orchestrate each tool call individually, loading all intermediate results into context:
+[MCP](https://modelcontextprotocol.io/) is great — standardized interfaces, structured data, extensible ecosystem. But for complex workflows, the agent has to orchestrate each tool call individually, loading all intermediate results into context. Model Context Shell adds a pipeline layer — the agent sends a single pipeline, and the server coordinates the tools, returning only the final result:
 
 ```mermaid
 flowchart TB
-    A[Agent]
-    M[MCP Tool]
-
-    A <--> M
-```
-
-Model Context Shell adds a pipeline layer between the agent and the tools. The agent sends a single pipeline, and the server coordinates the tools — only the final result goes back to the agent:
-
-```mermaid
-flowchart TB
-    A[Agent]
-    S[Shell]
-
-    T1[Tool A]
-    T2[Tool B]
-    T3[Tool C]
-
-    A <--> S
-
-    S --> T1
-    T1 --> S
-
-    S --> T2
-    T2 --> S
-
-    S --> T3
-    T3 --> S
+    subgraph without["Without"]
+        A1[Agent]
+        A1 <--> T1a[Tool A]
+        A1 <--> T2a[Tool B]
+        A1 <--> T3a[Tool C]
+    end
+    subgraph with["With Model Context Shell"]
+        A2[Agent] <--> S[Shell]
+        S --> T1b[Tool A] --> S
+        S --> T2b[Tool B] --> S
+        S --> T3b[Tool C] --> S
+    end
 ```
 
 | | Without | With |
@@ -71,6 +56,8 @@ Instead of 7+ separate tool calls loading all Pokemon data into context, the age
 - Filtered by weight and formatted the results
 
 **Result**: 50%+ reduction in tokens and only the final answer loaded into context.
+
+In practice, agents don't construct the perfect pipeline on the first try. They typically run a few exploratory queries first to understand the shape of the data before building the final pipeline. To keep this process fast and cheap, the server includes a preview stage powered by [headson](https://github.com/kantord/headson) that returns a compact structural summary of the data — enough for the agent to plan its transformations without loading the full dataset into context.
 
 ### How it works
 
