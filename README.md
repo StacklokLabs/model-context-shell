@@ -5,9 +5,9 @@
 
 **Unix-style pipelines for MCP tools — coordinate thousands of tool calls in a single request**
 
-## Overview
+## Introduction
 
-Model Context Shell is an MCP server that lets AI agents compose tool calls using Unix shell patterns. Instead of the agent orchestrating each tool call individually (loading all intermediate data into context), agents can express complex workflows as pipelines that execute server-side.
+Model Context Shell is an [MCP](https://modelcontextprotocol.io/) server that lets AI agents compose tool calls using Unix shell patterns. Instead of the agent orchestrating each tool call individually (loading all intermediate data into context), agents can express complex workflows as pipelines that execute server-side.
 
 The agent writes pipelines that conceptually work like this:
 
@@ -17,11 +17,11 @@ fetch users → jq (extract profile URLs) → for_each fetch → jq (filter acti
 
 This single pipeline fetches a list, extracts URLs, fetches each one, filters the results, and returns only the final output to the agent — no intermediate data in context.
 
-## Why This Matters
+### Why this matters
 
-MCP is great — standardized interfaces, structured data, extensible ecosystem. But for complex workflows, agents hit real limits:
+[MCP](https://modelcontextprotocol.io/) is great — standardized interfaces, structured data, extensible ecosystem. But for complex workflows, agents hit real limits:
 
-| | Without Model Context Shell | With Model Context Shell |
+| | Without | With |
 |---|---|---|
 | **Orchestration** | Agent coordinates every tool call, loading intermediate results into context | Single pipeline request, only final result returned |
 | **Composition** | Tools combined through LLM reasoning | Native Unix-style piping between tools |
@@ -29,7 +29,7 @@ MCP is great — standardized interfaces, structured data, extensible ecosystem.
 | **Reliability** | LLM-dependent control flow | Deterministic shell pipeline execution |
 | **Permissions** | Complex tasks push toward full shell access | Sandboxed execution with allowed commands only |
 
-## Real-World Example
+### Real-world example
 
 Example query: "List all Pokemon over 50 kg that have the chlorophyll ability"
 
@@ -41,53 +41,16 @@ Instead of 7+ separate tool calls loading all Pokemon data into context, the age
 
 **Result**: 50%+ reduction in tokens and only the final answer loaded into context.
 
-## Installation
+### How it works
 
-### Prerequisites
-
-- [ToolHive](https://toolhive.ai) (`thv`) for running and managing MCP servers
-
-### Quick Start
-
-Run the pre-built image from GitHub Container Registry:
-
-```bash
-# Linux (requires --network host)
-thv run ghcr.io/stackloklabs/model-context-shell:latest --network host --foreground --transport streamable-http
-
-# macOS / Windows (Docker Desktop bridge works automatically)
-thv run ghcr.io/stackloklabs/model-context-shell:latest --foreground --transport streamable-http
-```
-
-Once running, Model Context Shell is available to any AI agent that ToolHive supports — no additional integration required.
-
-## Security
-
-Model Context Shell runs in a containerized environment through ToolHive, so commands have no direct access to the user's filesystem — only through explicitly configured MCP servers.
-
-- **Containerized**: ToolHive runs Model Context Shell in an isolated container, so shell commands have no access to the host filesystem or network
-- **Allowed commands only**: A fixed whitelist of safe, read-only data transformation commands (`jq`, `grep`, `sed`, `awk`, `sort`, `uniq`, `cut`, `wc`, `head`, `tail`, `tr`, `date`, `bc`, `paste`, `shuf`, `join`, `sleep`)
-- **No shell injection**: Commands are executed with `shell=False`, arguments passed separately
-- **MCP tools only**: All external operations go through approved MCP servers
-
-## Usage Tips
-
-**Connect only Model Context Shell to your agent** — For best results, don't connect individual MCP servers directly to the agent alongside Model Context Shell. When agents have direct access to tools, they may call them individually instead of composing efficient pipelines. Model Context Shell can access all your MCP servers through ToolHive automatically.
-
-**Some agents need encouragement** — Most agents will use the shell naturally for complex tasks, but some may need a hint in their system prompt (e.g., "Use Model Context Shell pipelines to combine multiple tool calls efficiently").
-
-## How It Works
-
-Model Context Shell exposes four tools to the agent via MCP:
+The server exposes four tools to the agent via MCP:
 
 | Tool | Purpose |
 |---|---|
 | `execute_pipeline` | Execute a pipeline of tool calls and shell commands |
-| `list_all_tools` | Discover all tools available from MCP servers via ToolHive |
+| `list_all_tools` | Discover all tools available from MCP servers via [ToolHive](https://toolhive.ai) |
 | `get_tool_details` | Get the full schema and description for a specific tool |
 | `list_available_shell_commands` | Show the whitelist of allowed CLI commands |
-
-### Pipelines
 
 The agent constructs pipelines as JSON arrays of stages. Data flows from one stage to the next, similar to Unix pipes. There are three stage types:
 
@@ -106,13 +69,9 @@ The agent constructs pipelines as JSON arrays of stages. Data flows from one sta
 {"type": "preview", "chars": 3000}
 ```
 
-### Batch processing with `for_each`
-
 Any tool stage can set `"for_each": true` to process items one-by-one. The preceding stage must output JSONL (one JSON object per line), and the tool is called once per line. Results are collected into an array. This enables patterns like "fetch a list of URLs, then fetch each one" in a single pipeline call, using a single reused connection for efficiency.
 
-### Example pipeline
-
-This is what the agent actually sends — a JSON array that fetches users, extracts their profile URLs, fetches each profile, and filters for active users:
+Here is a full example — a pipeline that fetches users, extracts their profile URLs, fetches each profile, and filters for active users:
 
 ```json
 [
@@ -122,6 +81,40 @@ This is what the agent actually sends — a JSON array that fetches users, extra
     {"type": "command", "command": "jq", "args": ["-c", "[.[] | select(.active)] | sort_by(.name)"]}
 ]
 ```
+
+## Setup
+
+### Prerequisites
+
+- [ToolHive](https://toolhive.ai) (`thv`) — a runtime for managing MCP servers
+
+### Quick start
+
+Run the pre-built image from GitHub Container Registry:
+
+```bash
+# Linux (requires --network host)
+thv run ghcr.io/stackloklabs/model-context-shell:latest --network host --foreground --transport streamable-http
+
+# macOS / Windows (Docker Desktop bridge works automatically)
+thv run ghcr.io/stackloklabs/model-context-shell:latest --foreground --transport streamable-http
+```
+
+Once running, Model Context Shell is available to any AI agent that ToolHive supports — no additional integration required. It works with any existing MCP servers running through ToolHive, and relies on ToolHive's authentication model for connected servers.
+
+### Tips
+
+**Connect only Model Context Shell to your agent** — For best results, don't connect individual MCP servers directly to the agent alongside Model Context Shell. When agents have direct access to tools, they may call them individually instead of composing efficient pipelines. The server can access all your MCP servers through ToolHive automatically.
+
+**Some agents need encouragement** — Most agents will use the shell naturally for complex tasks, but some may need a hint in their system prompt (e.g., "Use Model Context Shell pipelines to combine multiple tool calls efficiently").
+
+## Security
+
+ToolHive runs Model Context Shell in an isolated container, so shell commands have no access to the host filesystem or network — only to explicitly configured MCP servers.
+
+- **Allowed commands only**: A fixed whitelist of safe, read-only data transformation commands (`jq`, `grep`, `sed`, `awk`, `sort`, `uniq`, `cut`, `wc`, `head`, `tail`, `tr`, `date`, `bc`, `paste`, `shuf`, `join`, `sleep`)
+- **No shell injection**: Commands are executed with `shell=False`, arguments passed separately
+- **MCP tools only**: All external operations go through approved MCP servers
 
 ## Development
 
@@ -149,24 +142,6 @@ uv run ruff check .
 uv run ruff format --check .
 uv run pyright
 ```
-
-## FAQ
-
-**Q: Does this work with my existing MCP servers?**
-
-A: Yes! Model Context Shell coordinates any standard MCP servers running through ToolHive.
-
-**Q: What about authentication?**
-
-A: Currently relies on ToolHive's authentication model for connected MCP servers.
-
-**Q: Can I run this without ToolHive?**
-
-A: Model Context Shell uses ToolHive for tool discovery and container management. Running without it is not currently supported.
-
-**Q: What shell commands are available?**
-
-A: A fixed whitelist: `jq`, `grep`, `sed`, `awk`, `sort`, `uniq`, `cut`, `wc`, `head`, `tail`, `tr`, `date`, `bc`, `paste`, `shuf`, `join`, `sleep`. See the [Security](#security) section.
 
 ## Contributing
 
