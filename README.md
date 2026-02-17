@@ -137,7 +137,38 @@ thv run ghcr.io/stackloklabs/model-context-shell:latest --network host --foregro
 thv run ghcr.io/stackloklabs/model-context-shell:latest --foreground --transport streamable-http
 ```
 
-Once running, Model Context Shell is available to any AI agent that ToolHive supports — no additional integration required. It works with any existing MCP servers running through ToolHive, and relies on ToolHive's authentication model for connected servers.
+Once running, you can find the server's address with `thv list`, which shows the URL and port for each running server. If you've registered your AI client with `thv client setup`, ToolHive configures it to discover running servers automatically — see the [CLI quickstart](https://docs.stacklok.com/toolhive/tutorials/quickstart-cli) for details.
+
+Model Context Shell works with any existing MCP servers running through ToolHive, and relies on ToolHive's authentication model for connected servers.
+
+### Adding MCP servers for testing
+
+Model Context Shell coordinates tools from other MCP servers running through ToolHive. To try it out, start a few servers:
+
+```bash
+# See what's available in the registry
+thv registry list
+
+# Run a simple fetch server (great for testing pipelines)
+thv run fetch
+
+# Check what's running
+thv list
+```
+
+You can also run servers from npm/PyPI packages directly:
+
+```bash
+thv run npx://@modelcontextprotocol/server-everything
+```
+
+For servers that need credentials (e.g. GitHub), pass secrets via ToolHive:
+
+```bash
+thv run --secret github,target=GITHUB_PERSONAL_ACCESS_TOKEN github
+```
+
+See the [ToolHive documentation](https://docs.stacklok.com/toolhive) for the full guide, including [CLI quickstart](https://docs.stacklok.com/toolhive/tutorials/quickstart-cli) and [available integrations](https://docs.stacklok.com/toolhive/integrations).
 
 ### Tips
 
