@@ -1,9 +1,6 @@
-# Model Context Shell
+<h1 align="center">Model Context Shell</h1>
 
-[![CI](https://github.com/StacklokLabs/model-context-shell/actions/workflows/ci.yml/badge.svg)](https://github.com/StacklokLabs/model-context-shell/actions/workflows/ci.yml)
-[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-
-**Unix-style pipelines for MCP tools — compose complex tool workflows as single pipeline requests**
+<p align="center"><b>Unix-style pipelines for MCP tools — compose complex tool workflows as single pipeline requests</b></p>
 
 ## Introduction
 
