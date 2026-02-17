@@ -7,6 +7,7 @@
 <a href="#setup">Setup</a> &middot;
 <a href="#security">Security</a> &middot;
 <a href="#development">Development</a> &middot;
+<a href="#rfc">RFC</a> &middot;
 <a href="#contributing">Contributing</a>
 </p>
 
@@ -210,6 +211,12 @@ uv run ruff check .
 uv run ruff format --check .
 uv run pyright
 ```
+
+## RFC
+
+This project is both a working tech demo and an early-stage RFC for the concept of composable MCP tool pipelines. Rather than writing a detailed specification upfront, the goal is to gather feedback on the idea by providing something concrete to try.
+
+If you have thoughts on the approach, ideas for improvements, or use cases we haven't considered, please share them in the [Discussions](https://github.com/StacklokLabs/model-context-shell/discussions) section.
 
 ## Contributing
 
