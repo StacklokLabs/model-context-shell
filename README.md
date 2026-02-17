@@ -7,6 +7,7 @@
 <a href="#setup">Setup</a> &middot;
 <a href="#security">Security</a> &middot;
 <a href="#development">Development</a> &middot;
+<a href="#specification">Specification</a> &middot;
 <a href="#rfc">RFC</a> &middot;
 <a href="#contributing">Contributing</a>
 </p>
@@ -211,6 +212,16 @@ uv run ruff check .
 uv run ruff format --check .
 uv run pyright
 ```
+
+## Specification
+
+For now, this project serves as a living specification — the implementation _is_ the spec. As the idea matures, a more formal specification may be extracted from it.
+
+**Execution model.** The current execution model is a scriptable map-reduce pipeline. Stages run sequentially, with `for_each` providing the map step over tool calls. This could be extended with a more generic mini-interpreter for evaluating more complex pipelines, but the current thinking is that it would never grow into a full-blown programming language. After a certain level of complexity, it makes more sense for agents to write a larger piece of code directly, or combine written code with the shell approach. That said, the built-in access to tools like `jq` and `awk` already makes the pipeline model surprisingly capable for most data transformation tasks.
+
+**Pipeline schema.** The pipeline format is defined by the `execute_pipeline` tool in [`main.py`](https://github.com/StacklokLabs/model-context-shell/blob/main/main.py). Since FastMCP generates the JSON Schema from the function signature and docstring, this serves as the canonical schema definition.
+
+**ToolHive and security.** The reliance on ToolHive and container isolation is a practical choice — it was the simplest way to get a working, secure system. ToolHive handles tool discovery, container management, and networking, which let this project focus on the pipeline execution model itself. A different deployment model could be used in the future without changing the core concept.
 
 ## RFC
 
