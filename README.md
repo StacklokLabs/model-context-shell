@@ -89,7 +89,7 @@ The server exposes four tools to the agent via MCP:
 | `execute_pipeline` | Execute a pipeline of tool calls and shell commands |
 | `list_all_tools` | Discover all tools available from MCP servers via [ToolHive](https://stacklok.com/download/) |
 | `get_tool_details` | Get the full schema and description for a specific tool |
-| `list_available_shell_commands` | Show the whitelist of allowed CLI commands |
+| `list_available_shell_commands` | Show the allowlist of CLI commands |
 
 The agent constructs pipelines as JSON arrays of stages. Data flows from one stage to the next, similar to Unix pipes. There are three stage types:
 
@@ -98,7 +98,7 @@ The agent constructs pipelines as JSON arrays of stages. Data flows from one sta
 {"type": "tool", "name": "fetch", "server": "fetch", "args": {"url": "https://..."}}
 ```
 
-**Command stages** transform data using whitelisted shell commands:
+**Command stages** transform data using allowed shell commands:
 ```json
 {"type": "command", "command": "jq", "args": ["-c", ".results[] | {id, name}"]}
 ```
@@ -182,7 +182,7 @@ See the [ToolHive documentation](https://docs.stacklok.com/toolhive) for the ful
 
 ToolHive runs Model Context Shell in an isolated container, so shell commands have no access to the host filesystem or network. The MCP servers it coordinates also run in their own separate containers, managed by ToolHive.
 
-- **Allowed commands only**: A fixed whitelist of safe, read-only data transformation commands (`jq`, `grep`, `sed`, `awk`, `sort`, `uniq`, `cut`, `wc`, `head`, `tail`, `tr`, `date`, `bc`, `paste`, `shuf`, `join`, `sleep`)
+- **Allowed commands only**: A fixed allowlist of safe, read-only data transformation commands (`jq`, `grep`, `sed`, `awk`, `sort`, `uniq`, `cut`, `wc`, `head`, `tail`, `tr`, `date`, `bc`, `paste`, `shuf`, `join`, `sleep`)
 - **No shell injection**: Commands are executed with `shell=False`, arguments passed separately
 - **MCP tools only**: All external operations go through approved MCP servers
 
