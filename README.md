@@ -12,6 +12,8 @@
 <a href="#contributing">Contributing</a>
 </p>
 
+<video src="demo.mp4" controls width="100%"></video>
+
 ## Introduction
 
 Model Context Shell lets AI agents compose [MCP](https://modelcontextprotocol.io/) tool calls using something like Unix shell scripting. Instead of the agent orchestrating each tool call individually (loading all intermediate data into context), it can express a workflow as a pipeline that executes server-side.
@@ -171,6 +173,14 @@ thv run --secret github,target=GITHUB_PERSONAL_ACCESS_TOKEN github
 ```
 
 See the [ToolHive documentation](https://docs.stacklok.com/toolhive) for the full guide, including [CLI quickstart](https://docs.stacklok.com/toolhive/tutorials/quickstart-cli) and [available integrations](https://docs.stacklok.com/toolhive/integrations).
+
+### Testing with the ToolHive Playground
+
+The ToolHive desktop app has a built-in [Playground](https://docs.stacklok.com/toolhive/guides-ui/playground) that lets you test MCP servers interactively without setting up an external AI client. You pick a model provider, enable the servers you want to test, and chat with the model to see how it uses the tools. Every tool call is logged with parameters, results, and response time, which makes it easy to debug pipelines.
+
+The [demo video](demo.mp4) at the top of this README shows Model Context Shell being tested this way.
+
+See the [ToolHive UI guide](https://docs.stacklok.com/toolhive/guides-ui/) for more on the desktop app.
 
 ### Tips
 
