@@ -4,6 +4,7 @@ from fastmcp import FastMCP
 
 import mcp_client
 import toolhive_client
+from models import PipelineStage
 from shell_engine import ShellEngine
 
 mcp = FastMCP(
@@ -50,7 +51,7 @@ def list_available_shell_commands() -> list[str]:
 
 
 @mcp.tool()
-async def execute_pipeline(pipeline: list[dict]) -> str:
+async def execute_pipeline(pipeline: list[PipelineStage]) -> str:
     """
     Execute a pipeline of tool calls and shell commands to coordinate multiple operations.
 
@@ -79,7 +80,7 @@ async def execute_pipeline(pipeline: list[dict]) -> str:
 
     Command Stage:
     {"type": "command", "command": "jq", "args": ["-c", ".field"]}
-    - Runs whitelisted shell commands (see list_available_shell_commands)
+    - Runs allowed shell commands (see list_available_shell_commands)
     - Command and args MUST be separate (security requirement)
 
     Preview Stage:

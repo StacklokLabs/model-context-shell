@@ -42,7 +42,7 @@ ignore = [
 quote-style = "double"
 
 [tool.coverage.run]
-source = ["main", "shell_engine", "mcp_client", "toolhive_client"]
+source = ["main", "shell_engine", "mcp_client", "toolhive_client", "models"]
 branch = true
 
 [tool.coverage.report]
@@ -50,6 +50,6 @@ show_missing = true
 skip_covered = false
 
 [tool.pyright]
-include = ["main.py", "mcp_client.py", "shell_engine.py", "toolhive_client.py", "tests"]
+include = ["main.py", "mcp_client.py", "shell_engine.py", "toolhive_client.py", "models.py", "tests"]
 pythonVersion = "3.13"
 typeCheckingMode = "standard"

@@ -6,8 +6,17 @@ import time
 from unittest.mock import AsyncMock
 
 import pytest
+from pydantic import TypeAdapter, ValidationError
 
+from models import PipelineStage
 from shell_engine import ShellEngine
+
+_pipeline_adapter = TypeAdapter(list[PipelineStage])
+
+
+def _make_pipeline(raw: list[dict]) -> list[PipelineStage]:
+    """Convert a list of plain dicts into validated PipelineStage models."""
+    return _pipeline_adapter.validate_python(raw)
 
 
 def _bwrap_functional() -> bool:
@@ -400,10 +409,12 @@ class TestExecutePipeline:
         mock_caller = AsyncMock(return_value=MockToolResult("test output"))
         engine = ShellEngine(tool_caller=mock_caller)
 
-        pipeline = [
-            {"type": "tool", "name": "generate", "server": "test", "args": {}},
-            {"type": "command", "command": "grep", "args": ["test"]},
-        ]
+        pipeline = _make_pipeline(
+            [
+                {"type": "tool", "name": "generate", "server": "test", "args": {}},
+                {"type": "command", "command": "grep", "args": ["test"]},
+            ]
+        )
 
         result = await engine.execute_pipeline(pipeline)
 
@@ -415,10 +426,12 @@ class TestExecutePipeline:
         mock_caller = AsyncMock(return_value=MockToolResult("apple\nbanana\ncherry"))
         engine = ShellEngine(tool_caller=mock_caller)
 
-        pipeline = [
-            {"type": "tool", "name": "get_data", "server": "test", "args": {}},
-            {"type": "command", "command": "grep", "args": ["a"]},
-        ]
+        pipeline = _make_pipeline(
+            [
+                {"type": "tool", "name": "get_data", "server": "test", "args": {}},
+                {"type": "command", "command": "grep", "args": ["a"]},
+            ]
+        )
 
         result = await engine.execute_pipeline(pipeline)
 
@@ -431,14 +444,16 @@ class TestExecutePipeline:
         mock_caller = AsyncMock(return_value=MockToolResult("tool result"))
         engine = ShellEngine(tool_caller=mock_caller)
 
-        pipeline = [
-            {
-                "type": "tool",
-                "name": "test_tool",
-                "server": "test_server",
-                "args": {"key": "value"},
-            }
-        ]
+        pipeline = _make_pipeline(
+            [
+                {
+                    "type": "tool",
+                    "name": "test_tool",
+                    "server": "test_server",
+                    "args": {"key": "value"},
+                }
+            ]
+        )
 
         result = await engine.execute_pipeline(pipeline)
 
@@ -451,15 +466,17 @@ class TestExecutePipeline:
         mock_caller = AsyncMock(return_value=MockToolResult('{"data": "test"}'))
         engine = ShellEngine(tool_caller=mock_caller)
 
-        pipeline = [
-            {
-                "type": "tool",
-                "name": "fetch",
-                "server": "http",
-                "args": {"url": "http://example.com"},
-            },
-            {"type": "command", "command": "jq", "args": [".data"]},
-        ]
+        pipeline = _make_pipeline(
+            [
+                {
+                    "type": "tool",
+                    "name": "fetch",
+                    "server": "http",
+                    "args": {"url": "http://example.com"},
+                },
+                {"type": "command", "command": "jq", "args": [".data"]},
+            ]
+        )
 
         result = await engine.execute_pipeline(pipeline)
 
@@ -470,7 +487,9 @@ class TestExecutePipeline:
         mock_caller = AsyncMock()
         engine = ShellEngine(tool_caller=mock_caller)
 
-        pipeline = [{"type": "command", "command": "rm", "args": ["-rf", "/"]}]
+        pipeline = _make_pipeline(
+            [{"type": "command", "command": "rm", "args": ["-rf", "/"]}]
+        )
 
         with pytest.raises(
             RuntimeError, match="Pipeline execution failed.*not allowed"
@@ -478,75 +497,42 @@ class TestExecutePipeline:
             await engine.execute_pipeline(pipeline)
 
     async def test_execute_pipeline_missing_command_field(self):
-        """Test pipeline with missing command field."""
-        mock_caller = AsyncMock()
-        engine = ShellEngine(tool_caller=mock_caller)
-
-        pipeline = [
-            {"type": "command", "args": ["test"]}  # Missing "command" field
-        ]
-
-        with pytest.raises(
-            RuntimeError, match="Pipeline execution failed.*missing 'command' field"
-        ):
-            await engine.execute_pipeline(pipeline)
+        """Test pipeline with missing command field raises ValidationError."""
+        with pytest.raises(ValidationError):
+            _make_pipeline(
+                [
+                    {"type": "command", "args": ["test"]}  # Missing "command" field
+                ]
+            )
 
     async def test_execute_pipeline_missing_tool_name_field(self):
-        """Test pipeline with missing tool name field."""
-        mock_caller = AsyncMock()
-        engine = ShellEngine(tool_caller=mock_caller)
-
-        # Missing "name" field
-        pipeline = [{"type": "tool", "server": "test_server", "args": {}}]
-
-        with pytest.raises(
-            RuntimeError, match="Pipeline execution failed.*missing 'name' field"
-        ):
-            await engine.execute_pipeline(pipeline)
+        """Test pipeline with missing tool name field raises ValidationError."""
+        with pytest.raises(ValidationError):
+            _make_pipeline([{"type": "tool", "server": "test_server", "args": {}}])
 
     async def test_execute_pipeline_missing_tool_server_field(self):
-        """Test pipeline with missing tool server field."""
-        mock_caller = AsyncMock()
-        engine = ShellEngine(tool_caller=mock_caller)
-
-        # Missing "server" field
-        pipeline = [{"type": "tool", "name": "test_tool", "args": {}}]
-
-        with pytest.raises(
-            RuntimeError, match="Pipeline execution failed.*missing 'server' field"
-        ):
-            await engine.execute_pipeline(pipeline)
+        """Test pipeline with missing tool server field raises ValidationError."""
+        with pytest.raises(ValidationError):
+            _make_pipeline([{"type": "tool", "name": "test_tool", "args": {}}])
 
     async def test_execute_pipeline_invalid_args_type(self):
-        """Test pipeline with invalid args type (not a list)."""
-        mock_caller = AsyncMock()
-        engine = ShellEngine(tool_caller=mock_caller)
-
-        pipeline = [{"type": "command", "command": "grep", "args": "not-a-list"}]
-
-        with pytest.raises(
-            RuntimeError, match="Pipeline execution failed.*must be an array"
-        ):
-            await engine.execute_pipeline(pipeline)
+        """Test pipeline with invalid args type (not a list) raises ValidationError."""
+        with pytest.raises(ValidationError):
+            _make_pipeline(
+                [{"type": "command", "command": "grep", "args": "not-a-list"}]
+            )
 
     async def test_execute_pipeline_unknown_stage_type(self):
-        """Test pipeline with unknown stage type."""
-        mock_caller = AsyncMock()
-        engine = ShellEngine(tool_caller=mock_caller)
-
-        pipeline = [{"type": "unknown_type", "data": "test"}]
-
-        with pytest.raises(
-            RuntimeError, match="Pipeline execution failed.*Unknown pipeline item type"
-        ):
-            await engine.execute_pipeline(pipeline)
+        """Test pipeline with unknown stage type raises ValidationError."""
+        with pytest.raises(ValidationError):
+            _make_pipeline([{"type": "unknown_type", "data": "test"}])
 
     async def test_execute_pipeline_empty_pipeline(self):
         """Test pipeline with no stages returns empty string."""
         mock_caller = AsyncMock()
         engine = ShellEngine(tool_caller=mock_caller)
 
-        pipeline = []
+        pipeline = _make_pipeline([])
 
         result = await engine.execute_pipeline(pipeline)
 
@@ -568,10 +554,12 @@ class TestExecutePipeline:
 
         engine = ShellEngine(tool_caller=mock_caller)
 
-        pipeline = [
-            {"type": "tool", "name": "list_urls", "server": "api", "args": {}},
-            {"type": "tool", "name": "fetch", "server": "http", "for_each": True},
-        ]
+        pipeline = _make_pipeline(
+            [
+                {"type": "tool", "name": "list_urls", "server": "api", "args": {}},
+                {"type": "tool", "name": "fetch", "server": "http", "for_each": True},
+            ]
+        )
 
         result = await engine.execute_pipeline(pipeline)
 
@@ -594,10 +582,12 @@ class TestPreviewStage:
         mock_caller = AsyncMock(return_value=MockToolResult(large_data))
         engine = ShellEngine(tool_caller=mock_caller)
 
-        pipeline = [
-            {"type": "tool", "name": "get_data", "server": "test", "args": {}},
-            {"type": "preview", "chars": 500},
-        ]
+        pipeline = _make_pipeline(
+            [
+                {"type": "tool", "name": "get_data", "server": "test", "args": {}},
+                {"type": "preview", "chars": 500},
+            ]
+        )
 
         result = await engine.execute_pipeline(pipeline)
 
@@ -616,10 +606,12 @@ class TestPreviewStage:
         mock_caller = AsyncMock(return_value=MockToolResult(large_array))
         engine = ShellEngine(tool_caller=mock_caller)
 
-        pipeline = [
-            {"type": "tool", "name": "get_data", "server": "test", "args": {}},
-            {"type": "preview", "chars": 200},
-        ]
+        pipeline = _make_pipeline(
+            [
+                {"type": "tool", "name": "get_data", "server": "test", "args": {}},
+                {"type": "preview", "chars": 200},
+            ]
+        )
 
         result = await engine.execute_pipeline(pipeline)
 
@@ -631,10 +623,12 @@ class TestPreviewStage:
         mock_caller = AsyncMock(return_value=MockToolResult('{"test": "data"}'))
         engine = ShellEngine(tool_caller=mock_caller)
 
-        pipeline = [
-            {"type": "tool", "name": "get_data", "server": "test", "args": {}},
-            {"type": "preview"},  # No chars specified
-        ]
+        pipeline = _make_pipeline(
+            [
+                {"type": "tool", "name": "get_data", "server": "test", "args": {}},
+                {"type": "preview"},  # No chars specified
+            ]
+        )
 
         # Should not raise, uses default
         result = await engine.execute_pipeline(pipeline)
@@ -642,16 +636,13 @@ class TestPreviewStage:
 
     async def test_preview_stage_invalid_chars(self):
         """Test that preview stage rejects invalid chars parameter."""
-        mock_caller = AsyncMock(return_value=MockToolResult('{"test": "data"}'))
-        engine = ShellEngine(tool_caller=mock_caller)
-
-        pipeline = [
-            {"type": "tool", "name": "get_data", "server": "test", "args": {}},
-            {"type": "preview", "chars": -100},
-        ]
-
-        with pytest.raises(RuntimeError, match="chars.*must be a positive integer"):
-            await engine.execute_pipeline(pipeline)
+        with pytest.raises(ValidationError):
+            _make_pipeline(
+                [
+                    {"type": "tool", "name": "get_data", "server": "test", "args": {}},
+                    {"type": "preview", "chars": -100},
+                ]
+            )
 
     @requires_bwrap
     async def test_preview_stage_in_middle_of_pipeline(self):
@@ -660,11 +651,13 @@ class TestPreviewStage:
         engine = ShellEngine(tool_caller=mock_caller)
 
         # Preview in the middle - subsequent stages see preview output, not original data
-        pipeline = [
-            {"type": "tool", "name": "get_data", "server": "test", "args": {}},
-            {"type": "preview", "chars": 500},
-            {"type": "command", "command": "wc", "args": ["-l"]},  # Count lines
-        ]
+        pipeline = _make_pipeline(
+            [
+                {"type": "tool", "name": "get_data", "server": "test", "args": {}},
+                {"type": "preview", "chars": 500},
+                {"type": "command", "command": "wc", "args": ["-l"]},  # Count lines
+            ]
+        )
 
         result = await engine.execute_pipeline(pipeline)
         # wc -l should return a number (the line count of the preview)
@@ -683,7 +676,9 @@ class TestErrorHandling:
 
         engine = ShellEngine(tool_caller=failing_caller)
 
-        pipeline = [{"type": "tool", "name": "test", "server": "test", "args": {}}]
+        pipeline = _make_pipeline(
+            [{"type": "tool", "name": "test", "server": "test", "args": {}}]
+        )
 
         with pytest.raises(
             RuntimeError, match="Pipeline execution failed.*Tool call failed"
@@ -695,15 +690,17 @@ class TestErrorHandling:
         mock_caller = AsyncMock(return_value=MockToolResult("ok"))
         engine = ShellEngine(tool_caller=mock_caller)
 
-        pipeline = [
-            {"type": "tool", "name": "get_data", "server": "test", "args": {}},
-            {
-                "type": "command",
-                "command": "rm",
-                "args": ["-rf", "/"],
-            },  # Stage 2 - forbidden
-            {"type": "command", "command": "grep", "args": ["never reached"]},
-        ]
+        pipeline = _make_pipeline(
+            [
+                {"type": "tool", "name": "get_data", "server": "test", "args": {}},
+                {
+                    "type": "command",
+                    "command": "rm",
+                    "args": ["-rf", "/"],
+                },  # Stage 2 - forbidden
+                {"type": "command", "command": "grep", "args": ["never reached"]},
+            ]
+        )
 
         with pytest.raises(RuntimeError, match="Pipeline execution failed.*Stage 2"):
             await engine.execute_pipeline(pipeline)
@@ -716,10 +713,12 @@ class TestErrorHandling:
         mock_caller = AsyncMock(return_value=MockToolResult('"just a string"'))
         engine = ShellEngine(tool_caller=mock_caller)
 
-        pipeline = [
-            {"type": "tool", "name": "get_data", "server": "test", "args": {}},
-            {"type": "command", "command": "jq", "args": [".name"]},
-        ]
+        pipeline = _make_pipeline(
+            [
+                {"type": "tool", "name": "get_data", "server": "test", "args": {}},
+                {"type": "command", "command": "jq", "args": [".name"]},
+            ]
+        )
 
         with pytest.raises(
             RuntimeError, match="Command 'jq' failed with exit code.*Stderr:"
@@ -734,10 +733,12 @@ class TestErrorHandling:
 
         # grep exits with 1 when no match, but doesn't write to stderr
         # This should NOT raise an error - just return empty output
-        pipeline = [
-            {"type": "tool", "name": "get_data", "server": "test", "args": {}},
-            {"type": "command", "command": "grep", "args": ["nonexistent_pattern"]},
-        ]
+        pipeline = _make_pipeline(
+            [
+                {"type": "tool", "name": "get_data", "server": "test", "args": {}},
+                {"type": "command", "command": "grep", "args": ["nonexistent_pattern"]},
+            ]
+        )
 
         result = await engine.execute_pipeline(pipeline)
         # Should complete successfully with empty output
@@ -806,9 +807,9 @@ class TestShellCommandTimeouts:
         engine = ShellEngine(tool_caller=mock_caller)
 
         # Pipeline with a command that times out
-        pipeline = [
-            {"type": "command", "command": "sleep", "args": ["10"], "timeout": 0.2}
-        ]
+        pipeline = _make_pipeline(
+            [{"type": "command", "command": "sleep", "args": ["10"], "timeout": 0.2}]
+        )
 
         start = time.time()
         with pytest.raises(RuntimeError, match="Pipeline execution failed.*timed out"):
@@ -824,16 +825,18 @@ class TestShellCommandTimeouts:
         engine = ShellEngine(tool_caller=mock_caller)
 
         # Each line would cause a slow command, but should timeout
-        pipeline = [
-            {"type": "tool", "name": "get_lines", "server": "test", "args": {}},
-            {
-                "type": "command",
-                "command": "sleep",
-                "args": ["10"],
-                "for_each": True,
-                "timeout": 0.2,
-            },
-        ]
+        pipeline = _make_pipeline(
+            [
+                {"type": "tool", "name": "get_lines", "server": "test", "args": {}},
+                {
+                    "type": "command",
+                    "command": "sleep",
+                    "args": ["10"],
+                    "for_each": True,
+                    "timeout": 0.2,
+                },
+            ]
+        )
 
         start = time.time()
         with pytest.raises(RuntimeError, match="Pipeline execution failed.*timed out"):

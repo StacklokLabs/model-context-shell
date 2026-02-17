@@ -15,6 +15,8 @@ from typing import Any
 
 import headson
 
+from models import CommandStage, PipelineStage, PreviewStage, ToolStage
+
 
 def _running_in_container() -> bool:
     """Detect if we're running inside a container (Docker, Podman, etc.).
@@ -49,7 +51,7 @@ def _running_in_container() -> bool:
     return False
 
 
-# Whitelist of allowed shell commands
+# Allowlist of shell commands
 # Note: Commands that only generate hardcoded text (echo, printf) are excluded
 # to enforce tool-first architecture where all data comes from real sources
 ALLOWED_COMMANDS = [
@@ -488,12 +490,12 @@ class ShellEngine:
             # Fallback to string representation
             return str(result)
 
-    async def execute_pipeline(self, pipeline: list[dict]) -> str:
+    async def execute_pipeline(self, pipeline: list[PipelineStage]) -> str:
         """
         Execute a pipeline of tool calls and shell commands.
 
         Args:
-            pipeline: List of pipeline stage dictionaries
+            pipeline: List of typed pipeline stages
 
         Returns:
             Final output of the pipeline
@@ -503,54 +505,32 @@ class ShellEngine:
             upstream: Iterable[str] = iter([])
 
             # Process each stage in the pipeline
-            for idx, item in enumerate(pipeline):
-                item_type = item.get("type")
-                for_each = item.get("for_each", False)
-
-                if item_type == "command":
-                    command = item.get("command", "")
-                    cmd_args = item.get("args", [])
-                    cmd_timeout = item.get(
-                        "timeout"
-                    )  # Optional timeout for this specific command
-
-                    if not command:
-                        raise ValueError("Command stage missing 'command' field")
-
-                    if not isinstance(cmd_args, list):
-                        raise ValueError(
-                            f"Command 'args' must be an array, got {type(cmd_args).__name__}"
-                        )
-
+            for idx, stage in enumerate(pipeline):
+                if isinstance(stage, CommandStage):
                     try:
                         # Validate command before execution
-                        self.validate_command(command)
+                        self.validate_command(stage.command)
                         upstream = self.shell_stage(
-                            command,
-                            cmd_args,
+                            stage.command,
+                            stage.args,
                             upstream,
-                            for_each=for_each,
-                            timeout=cmd_timeout,
+                            for_each=stage.for_each,
+                            timeout=stage.timeout,
                         )
                     except Exception as e:
                         raise RuntimeError(
                             f"Stage {idx + 1} (command) failed: {str(e)}"
                         )
 
-                elif item_type == "tool":
-                    tool_name = item.get("name", "")
-                    server_name = item.get("server", "")
-                    args = item.get("args", {})
-
-                    if not tool_name:
-                        raise ValueError("Tool stage missing 'name' field")
-                    if not server_name:
-                        raise ValueError("Tool stage missing 'server' field")
-
+                elif isinstance(stage, ToolStage):
                     try:
                         # Tool stages consume all upstream and return a result
                         result = await self.tool_stage(
-                            server_name, tool_name, args, upstream, for_each=for_each
+                            stage.server,
+                            stage.name,
+                            stage.args,
+                            upstream,
+                            for_each=stage.for_each,
                         )
                         # Convert result back to a stream for next stage
                         # Ensure result ends with newline for proper shell command processing
@@ -560,20 +540,13 @@ class ShellEngine:
                         upstream = iter([result])
                     except Exception as e:
                         raise RuntimeError(
-                            f"Stage {idx + 1} (tool {server_name}/{tool_name}) failed: {str(e)}"
+                            f"Stage {idx + 1} (tool {stage.server}/{stage.name}) failed: {str(e)}"
                         )
 
-                elif item_type == "preview":
+                elif isinstance(stage, PreviewStage):
                     # Preview stage: summarize upstream data for the agent to inspect
                     # Uses headson to create a structure-aware preview within a char budget
                     # Output is NOT valid JSON - it uses pseudo-format with /* N more */ markers
-                    chars = item.get("chars", 3000)
-
-                    if not isinstance(chars, int) or chars <= 0:
-                        raise ValueError(
-                            f"Preview 'chars' must be a positive integer, got {chars}"
-                        )
-
                     try:
                         # Collect upstream data
                         input_data = "".join(upstream)
@@ -585,7 +558,7 @@ class ShellEngine:
                             format="json",
                             style="detailed",
                             input_format="json",
-                            byte_budget=chars,  # headson uses byte_budget param
+                            byte_budget=stage.chars,  # headson uses byte_budget param
                         )
 
                         # Add clear marker that this is a preview, not real data
@@ -600,9 +573,6 @@ class ShellEngine:
                         raise RuntimeError(
                             f"Stage {idx + 1} (preview) failed: {str(e)}"
                         )
-
-                else:
-                    raise ValueError(f"Unknown pipeline item type: {item_type}")
 
             # Collect final output
             output = "".join(upstream)
