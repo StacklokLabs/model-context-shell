@@ -1,6 +1,6 @@
 <h1 align="center">Model Context Shell</h1>
 
-<p align="center"><b>Unix-style pipelines for MCP tools -compose complex tool workflows as single pipeline requests</b></p>
+<p align="center"><b>Unix-style pipelines for MCP tools - compose complex tool workflows as a single tool call</b></p>
 
 <p align="center">
 <a href="#introduction">Introduction</a> &middot;
@@ -114,7 +114,7 @@ The agent constructs pipelines as JSON arrays of stages. Data flows from one sta
 
 Any tool stage can set `"for_each": true` to process items one-by-one. The preceding stage must output JSONL (one JSON object per line), and the tool is called once per line. Results are collected into an array. So "fetch a list of URLs, then fetch each one" is a single pipeline call, using a single reused connection.
 
-Full example -fetch users, extract their profile URLs, fetch each profile, filter for active users:
+Full example - fetch users, extract their profile URLs, fetch each profile, filter for active users:
 
 ```json
 [
@@ -129,7 +129,7 @@ Full example -fetch users, extract their profile URLs, fetch each profile, filte
 
 ### Prerequisites
 
-- [ToolHive](https://stacklok.com/download/) (`thv`) -a runtime for managing MCP servers
+- [ToolHive](https://stacklok.com/download/) (`thv`) - a runtime for managing MCP servers
 
 ### Quick start
 
@@ -227,13 +227,13 @@ uv run pyright
 
 ## Specification
 
-For now, this project serves as a living specification -the implementation _is_ the spec. A more formal specification may be extracted later.
+For now, this project serves as a living specification - the implementation _is_ the spec. A more formal specification may be extracted later.
 
 **Execution model.** The current execution model is a scriptable map-reduce pipeline. Stages run sequentially, with `for_each` providing the map step over tool calls. This could be extended with a more generic mini-interpreter, but it probably shouldn't grow into a full programming language. Past a certain complexity, it makes more sense for agents to write code directly, or combine written code with the shell approach. That said, built-in access to tools like `jq` and `awk` already makes the pipeline model pretty capable for most data transformation tasks.
 
 **Pipeline schema.** The pipeline stages are defined as typed Pydantic models in [`models.py`](https://github.com/StacklokLabs/model-context-shell/blob/main/models.py). FastMCP generates a discriminated-union JSON Schema from these models, so MCP clients can validate pipelines before sending them.
 
-**ToolHive and security.** The reliance on ToolHive and container isolation is a practical choice -it was the simplest way to get a working, secure system. ToolHive handles tool discovery, container management, and networking, which lets this project focus on the pipeline execution model itself. A different deployment model could be used without changing the core concept.
+**ToolHive and security.** The reliance on ToolHive and container isolation is a practical choice - it was the simplest way to get a working, secure system. ToolHive handles tool discovery, container management, and networking, which lets this project focus on the pipeline execution model itself. A different deployment model could be used without changing the core concept.
 
 ## RFC
 
