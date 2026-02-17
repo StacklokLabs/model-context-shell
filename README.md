@@ -1,9 +1,16 @@
-# Model Context Shell
+<h1 align="center">Model Context Shell</h1>
 
-[![CI](https://github.com/StacklokLabs/model-context-shell/actions/workflows/ci.yml/badge.svg)](https://github.com/StacklokLabs/model-context-shell/actions/workflows/ci.yml)
-[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+<p align="center"><b>Unix-style pipelines for MCP tools — compose complex tool workflows as single pipeline requests</b></p>
 
-**Unix-style pipelines for MCP tools — compose complex tool workflows as single pipeline requests**
+<p align="center">
+<a href="#introduction">Introduction</a> &middot;
+<a href="#setup">Setup</a> &middot;
+<a href="#security">Security</a> &middot;
+<a href="#development">Development</a> &middot;
+<a href="#specification">Specification</a> &middot;
+<a href="#rfc">RFC</a> &middot;
+<a href="#contributing">Contributing</a>
+</p>
 
 ## Introduction
 
@@ -132,7 +139,38 @@ thv run ghcr.io/stackloklabs/model-context-shell:latest --network host --foregro
 thv run ghcr.io/stackloklabs/model-context-shell:latest --foreground --transport streamable-http
 ```
 
-Once running, Model Context Shell is available to any AI agent that ToolHive supports — no additional integration required. It works with any existing MCP servers running through ToolHive, and relies on ToolHive's authentication model for connected servers.
+Once running, you can find the server's address with `thv list`, which shows the URL and port for each running server. If you've registered your AI client with `thv client setup`, ToolHive configures it to discover running servers automatically — see the [CLI quickstart](https://docs.stacklok.com/toolhive/tutorials/quickstart-cli) for details.
+
+Model Context Shell works with any existing MCP servers running through ToolHive, and relies on ToolHive's authentication model for connected servers.
+
+### Adding MCP servers for testing
+
+Model Context Shell coordinates tools from other MCP servers running through ToolHive. To try it out, start a few servers:
+
+```bash
+# See what's available in the registry
+thv registry list
+
+# Run a simple fetch server (great for testing pipelines)
+thv run fetch
+
+# Check what's running
+thv list
+```
+
+You can also run servers from npm/PyPI packages directly:
+
+```bash
+thv run npx://@modelcontextprotocol/server-everything
+```
+
+For servers that need credentials (e.g. GitHub), pass secrets via ToolHive:
+
+```bash
+thv run --secret github,target=GITHUB_PERSONAL_ACCESS_TOKEN github
+```
+
+See the [ToolHive documentation](https://docs.stacklok.com/toolhive) for the full guide, including [CLI quickstart](https://docs.stacklok.com/toolhive/tutorials/quickstart-cli) and [available integrations](https://docs.stacklok.com/toolhive/integrations).
 
 ### Tips
 
@@ -174,6 +212,22 @@ uv run ruff check .
 uv run ruff format --check .
 uv run pyright
 ```
+
+## Specification
+
+For now, this project serves as a living specification — the implementation _is_ the spec. As the idea matures, a more formal specification may be extracted from it.
+
+**Execution model.** The current execution model is a scriptable map-reduce pipeline. Stages run sequentially, with `for_each` providing the map step over tool calls. This could be extended with a more generic mini-interpreter for evaluating more complex pipelines, but the current thinking is that it would never grow into a full-blown programming language. After a certain level of complexity, it makes more sense for agents to write a larger piece of code directly, or combine written code with the shell approach. That said, the built-in access to tools like `jq` and `awk` already makes the pipeline model surprisingly capable for most data transformation tasks.
+
+**Pipeline schema.** The pipeline format is defined by the `execute_pipeline` tool in [`main.py`](https://github.com/StacklokLabs/model-context-shell/blob/main/main.py). Since FastMCP generates the JSON Schema from the function signature and docstring, this serves as the canonical schema definition.
+
+**ToolHive and security.** The reliance on ToolHive and container isolation is a practical choice — it was the simplest way to get a working, secure system. ToolHive handles tool discovery, container management, and networking, which let this project focus on the pipeline execution model itself. A different deployment model could be used in the future without changing the core concept.
+
+## RFC
+
+This project is both a working tech demo and an early-stage RFC for the concept of composable MCP tool pipelines. Rather than writing a detailed specification upfront, the goal is to gather feedback on the idea by providing something concrete to try.
+
+If you have thoughts on the approach, ideas for improvements, or use cases we haven't considered, please share them in the [Discussions](https://github.com/StacklokLabs/model-context-shell/discussions) section.
 
 ## Contributing
 
