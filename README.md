@@ -12,7 +12,7 @@
 <a href="#contributing">Contributing</a>
 </p>
 
-<video src="demo.mp4" controls width="100%"></video>
+https://github.com/user-attachments/assets/474206f9-4a88-43d0-b4f3-3e7cfe2d743d
 
 ## Introduction
 
@@ -178,7 +178,7 @@ See the [ToolHive documentation](https://docs.stacklok.com/toolhive) for the ful
 
 The ToolHive desktop app has a built-in [Playground](https://docs.stacklok.com/toolhive/guides-ui/playground) that lets you test MCP servers interactively without setting up an external AI client. You pick a model provider, enable the servers you want to test, and chat with the model to see how it uses the tools. Every tool call is logged with parameters, results, and response time, which makes it easy to debug pipelines.
 
-The [demo video](demo.mp4) at the top of this README shows Model Context Shell being tested this way.
+The [demo video](#) at the top of this README shows Model Context Shell being tested this way.
 
 See the [ToolHive UI guide](https://docs.stacklok.com/toolhive/guides-ui/) for more on the desktop app.
 
