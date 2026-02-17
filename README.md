@@ -2,6 +2,14 @@
 
 <p align="center"><b>Unix-style pipelines for MCP tools — compose complex tool workflows as single pipeline requests</b></p>
 
+<p align="center">
+<a href="#introduction">Introduction</a> &middot;
+<a href="#setup">Setup</a> &middot;
+<a href="#security">Security</a> &middot;
+<a href="#development">Development</a> &middot;
+<a href="#contributing">Contributing</a>
+</p>
+
 ## Introduction
 
 Model Context Shell is a system that lets AI agents compose [MCP](https://modelcontextprotocol.io/) tool calls similar to Unix shell scripting. Instead of the agent orchestrating each tool call individually (loading all intermediate data into context), agents can express complex workflows as pipelines that execute server-side.
