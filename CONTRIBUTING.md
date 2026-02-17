@@ -1,10 +1,10 @@
-# Contributing to `mcp-shell` <!-- omit from toc -->
+# Contributing to Model Context Shell <!-- omit from toc -->
 
-First off, thank you for taking the time to contribute to MCP Shell! :+1: :tada: MCP Shell is released under the Apache 2.0 license.
+First off, thank you for taking the time to contribute to Model Context Shell! :+1: :tada: Model Context Shell is released under the Apache 2.0 license.
 If you would like to contribute something or want to hack on the code, this
 document should help you get started. You can find some hints for starting
-development in mcp-shell's
-[README](https://github.com/StacklokLabs/mcp-shell/blob/main/README.md).
+development in the project's
+[README](https://github.com/StacklokLabs/model-context-shell/blob/main/README.md).
 
 ## Table of contents <!-- omit from toc -->
 
@@ -19,17 +19,17 @@ development in mcp-shell's
 ## Code of conduct
 
 This project adheres to the
-[Contributor Covenant](https://github.com/StacklokLabs/mcp-shell/blob/main/CODE_OF_CONDUCT.md)
+[Contributor Covenant](https://github.com/StacklokLabs/model-context-shell/blob/main/CODE_OF_CONDUCT.md)
 code of conduct. By participating, you are expected to uphold this code. Please
 report unacceptable behavior to
 [code-of-conduct@stacklok.com](mailto:code-of-conduct@stacklok.com).
 
 ## Reporting security vulnerabilities
 
-If you think you have found a security vulnerability in mcp-shell please DO
+If you think you have found a security vulnerability in Model Context Shell please DO
 NOT disclose it publicly until we've had a chance to fix it. Please don't report
 security vulnerabilities using GitHub issues; instead, please follow this
-[process](https://github.com/StacklokLabs/mcp-shell/blob/main/SECURITY.md)
+[process](https://github.com/StacklokLabs/model-context-shell/blob/main/SECURITY.md)
 
 ## How to contribute
 
@@ -46,7 +46,7 @@ sample project that reproduces the problem.
 ### Not sure how to start contributing?
 
 PRs to resolve existing issues are greatly appreciated and issues labeled as
-["good first issue"](https://github.com/StacklokLabs/mcp-shell/issues?q=is%3Aopen+is%3Aissue+label%3A%22good+first+issue%22)
+["good first issue"](https://github.com/StacklokLabs/model-context-shell/issues?q=is%3Aopen+is%3Aissue+label%3A%22good+first+issue%22)
 are a great place to start!
 
 ### Pull request process
@@ -56,7 +56,7 @@ are a great place to start!
   of Origin. For additional details, check out the [DCO instructions](dco.md).
 
 - Create an issue outlining the fix or feature.
-- Fork the mcp-shell repository to your own GitHub account and clone it
+- Fork the repository to your own GitHub account and clone it
   locally.
 - Hack on your changes.
 - Correctly format your commit messages, see
@@ -64,7 +64,7 @@ are a great place to start!
 - Open a PR by ensuring the title and its description reflect the content of the
   PR.
 - Ensure that CI passes, if it fails, fix the failures.
-- Every pull request requires a review from the core mcp-shell team before
+- Every pull request requires a review from the core team before
   merging.
 - Once approved, all of your commits will be squashed into a single commit with
   your PR title.

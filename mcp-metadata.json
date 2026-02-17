@@ -8,6 +8,7 @@
     "tools": [
       "execute_pipeline",
       "list_all_tools",
+      "get_tool_details",
       "list_available_shell_commands"
     ],
     "metadata": {
