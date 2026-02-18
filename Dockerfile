@@ -1,6 +1,6 @@
 # Multi-stage build for model-context-shell
 # Stage 1: Builder - install dependencies
-FROM python:3.13-slim AS builder
+FROM python:3.14-slim AS builder
 
 # Create non-root user
 RUN groupadd --gid 1000 app && \
@@ -49,7 +49,7 @@ RUN --mount=type=cache,target=/home/app/.cache/uv,uid=1000,gid=1000 \
 COPY --chown=app:app *.py ./
 
 # Stage 2: Runtime - minimal image
-FROM python:3.13-slim AS runner
+FROM python:3.14-slim AS runner
 
 # Create non-root user (same as builder)
 RUN groupadd --gid 1000 app && \
