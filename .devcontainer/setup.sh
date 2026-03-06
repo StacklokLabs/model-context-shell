@@ -15,15 +15,13 @@ export PATH="$HOME/.local/bin:$PATH"
 if [ ! -f "$HOME/.claude.json" ]; then
   echo '{}' > "$HOME/.claude.json"
 fi
-python3 -c "
-import json
-path = '$HOME/.claude.json'
-with open(path) as f:
-    config = json.load(f)
-config['hasCompletedOnboarding'] = True
-config['lastOnboardingVersion'] = '99.99.99'
-with open(path, 'w') as f:
-    json.dump(config, f)
+node -e "
+const fs = require('fs');
+const path = '$HOME/.claude.json';
+const config = JSON.parse(fs.readFileSync(path, 'utf8'));
+config.hasCompletedOnboarding = true;
+config.lastOnboardingVersion = '99.99.99';
+fs.writeFileSync(path, JSON.stringify(config));
 "
 
 # Ensure VS Code Server MCP config exists so thv can register itself
