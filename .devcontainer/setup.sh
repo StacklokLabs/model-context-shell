@@ -30,9 +30,6 @@ if [ ! -f "$HOME/.vscode-server/data/User/mcp.json" ]; then
   echo '{}' > "$HOME/.vscode-server/data/User/mcp.json"
 fi
 
-# Register clients
+# Register clients (Docker not needed for registration)
 thv client register claude-code
 thv client register vscode-server
-
-# Start MCP servers
-thv run mermaid
