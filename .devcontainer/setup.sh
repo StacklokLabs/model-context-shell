@@ -6,8 +6,7 @@ npm install -g @anthropic-ai/claude-code
 
 # Install thv (ToolHive) to ~/.local/bin
 mkdir -p "$HOME/.local/bin"
-THV_VERSION="0.11.0"
-curl -fsSL "https://github.com/stacklok/toolhive/releases/download/v${THV_VERSION}/toolhive_${THV_VERSION}_linux_amd64.tar.gz" \
+curl -fsSL "https://github.com/stacklok/toolhive/releases/download/v0.11.0/toolhive_0.11.0_linux_amd64.tar.gz" \
   | tar -xz -C "$HOME/.local/bin" thv
 
 export PATH="$HOME/.local/bin:$PATH"
@@ -17,7 +16,7 @@ if [ ! -f "$HOME/.claude.json" ]; then
   echo '{}' > "$HOME/.claude.json"
 fi
 python3 -c "
-import json, sys
+import json
 path = '$HOME/.claude.json'
 with open(path) as f:
     config = json.load(f)
@@ -39,6 +38,3 @@ thv client register vscode-server
 
 # Start MCP servers
 thv run mermaid
-thv run fetch
-thv run osv
-thv run semgrep
