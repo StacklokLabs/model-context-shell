@@ -12,6 +12,9 @@ curl -fsSL "https://github.com/stacklok/toolhive/releases/download/v${THV_VERSIO
 
 export PATH="$HOME/.local/bin:$PATH"
 
+# Fix ~/.claude volume permissions (volume may be created as root)
+sudo chown -R vscode:vscode "$HOME/.claude" 2>/dev/null || true
+
 # Ensure Claude Code config exists so thv can register itself
 if [ ! -f "$HOME/.claude.json" ]; then
   echo '{"hasCompletedOnboarding": true}' > "$HOME/.claude.json"
