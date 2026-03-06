@@ -30,5 +30,8 @@ fi
 thv client register claude-code
 thv client register vscode-server
 
-# Start mermaid MCP server
+# Start MCP servers
 thv run mermaid
+thv run fetch
+thv run osv
+thv run semgrep
