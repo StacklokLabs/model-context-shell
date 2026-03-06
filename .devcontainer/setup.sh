@@ -14,7 +14,7 @@ export PATH="$HOME/.local/bin:$PATH"
 
 # Ensure Claude Code config exists so thv can register itself
 if [ ! -f "$HOME/.claude.json" ]; then
-  echo '{}' > "$HOME/.claude.json"
+  echo '{"hasCompletedOnboarding": true}' > "$HOME/.claude.json"
 fi
 
 # Ensure VS Code Server MCP config exists so thv can register itself
