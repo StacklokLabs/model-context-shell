@@ -6,19 +6,26 @@ npm install -g @anthropic-ai/claude-code
 
 # Install thv (ToolHive) to ~/.local/bin
 mkdir -p "$HOME/.local/bin"
-THV_VERSION=$(curl -s https://api.github.com/repos/stacklok/toolhive/releases/latest | grep '"tag_name"' | cut -d'"' -f4 | sed 's/^v//')
+THV_VERSION="0.11.0"
 curl -fsSL "https://github.com/stacklok/toolhive/releases/download/v${THV_VERSION}/toolhive_${THV_VERSION}_linux_amd64.tar.gz" \
   | tar -xz -C "$HOME/.local/bin" thv
 
 export PATH="$HOME/.local/bin:$PATH"
 
-# Fix ~/.claude volume permissions (volume may be created as root)
-sudo chown -R vscode:vscode "$HOME/.claude" 2>/dev/null || true
-
-# Ensure Claude Code config exists so thv can register itself
+# Ensure Claude Code config exists and onboarding is marked complete
 if [ ! -f "$HOME/.claude.json" ]; then
-  echo '{"hasCompletedOnboarding": true}' > "$HOME/.claude.json"
+  echo '{}' > "$HOME/.claude.json"
 fi
+python3 -c "
+import json, sys
+path = '$HOME/.claude.json'
+with open(path) as f:
+    config = json.load(f)
+config['hasCompletedOnboarding'] = True
+config['lastOnboardingVersion'] = '99.99.99'
+with open(path, 'w') as f:
+    json.dump(config, f)
+"
 
 # Ensure VS Code Server MCP config exists so thv can register itself
 mkdir -p "$HOME/.vscode-server/data/User"

@@ -8,9 +8,6 @@
     "ghcr.io/devcontainers/features/docker-in-docker:2": {}
   },
   "postCreateCommand": "bash .devcontainer/setup.sh",
-  "mounts": [
-    "source=claude-code-config,target=/home/vscode/.claude,type=volume"
-  ],
   "customizations": {
     "vscode": {
       "extensions": [
